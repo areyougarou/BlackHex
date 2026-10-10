@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="app.grapheneos.camera" />
+        <package android:name="app.attestation.auditor" />
+        <package android:name="app.vanadium.browser" />
+        <package android:name="app.grapheneos.gmscompat" />
+        <package android:name="org.lineageos.updater" />
+        <package android:name="org.lineageos.jelly" />
+        <package android:name="org.lineageos.trebuchet" />
+        <package android:name="org.calyxos.datura" />
+        <package android:name="com.stevesoltys.seedvault" />
+        <package android:name="foundation.e.blisslauncher" />
+        <package android:name="foundation.e.apps" />
+        <package android:name="org.microg.gms.droidguard" />
+        <package android:name="com.google.android.gsf.microg" />
+        <package android:name="com.google.android.gms" />
+        <package android:name="com.android.vending" />
+        <package android:name="com.topjohnwu.magisk" />
+        <package android:name="io.github.huskydg.magisk" />
+        <package android:name="io.github.vvb2060.magisk" />
+        <package android:name="me.weishu.kernelsu" />
+        <package android:name="com.rifsxd.ksunext" />
+        <package android:name="me.bmax.apatch" />
+        <package android:name="me.garfieldhan.apatch.next" />
+        <package android:name="eu.chainfire.supersu" />
+        <package android:name="com.koushikdutta.superuser" />
+        <package android:name="com.noshufou.android.su" />
+        <package android:name="com.thirdparty.superuser" />
+        <package android:name="com.kingroot.kinguser" />
+        <package android:name="com.kingo.root" />
+    </queries>
+</manifest>

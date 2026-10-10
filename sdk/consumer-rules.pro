@@ -1,0 +1,1 @@
+-keep class rasp.sdk.NativeCore { native <methods>; }
