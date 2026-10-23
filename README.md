@@ -1,14 +1,17 @@
-# BlackHex (free tier)
+> [!IMPORTANT]
+> **Why BlackHex?**
+>
+> Because the major RASP competitors are run by marketing and sales teams, not security researchers.
+>
+> App owners are being sold high-ticket placebos, while attackers are 3 prompts away from running fraud operations on your app.
+>
+> **We plan to do better, and to do it for free.**
 
-A lightweight Android RASP (runtime app self-protection) library. It runs a battery of
-on-device integrity checks and returns signals plus a verdict. The host app decides what
-to do with the verdict — the library reports, it does not kill your process for you.
+~ BlackHex (free tier)
+Free Android RASP (runtime app self-protection) library. It actively checks on-device 
+integrity and returns signals plus a verdict.
 
-It is a **sensor, not a judge**: every check reports CLEAN, DETECTED, or INCONCLUSIVE, and
-only the checks you opt into blocking can raise an enforce verdict.
-
-## What it checks
-
+~ What it checks for
 Five groups. Four are policy toggles you set to `ALLOW` or `BLOCK`; app-integrity is always
 enforced.
 
@@ -19,6 +22,9 @@ enforced.
 | Instrumentation | ALLOW \| BLOCK | Runtime hooking / code injection (ART method hooks, inline-hook residue, injected libraries) |
 | Root | ALLOW \| BLOCK | Signs of an unhidden rooted device (world-visible su, live Magisk/Zygisk/APatch daemon socket, module mount residue, a known root-manager app, kernel root token, privileged/non-zygote launch context) |
 | Bootloader / custom ROM | ALLOW \| BLOCK | Unlocked bootloader / custom ROM indicators (verified-boot state, ROM system features, ROM signing, ROM build props) |
+
+Every check reports either CLEAN, DETECTED, or INCONCLUSIVE.
+
 
 ### Honest limits
 
