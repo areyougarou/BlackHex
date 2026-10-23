@@ -8,25 +8,30 @@
 > **We plan to do better, and to do it for free.**
 
 ~ BlackHex (free tier)
+
 Free Android RASP (runtime app self-protection) library. It actively checks on-device 
-integrity and returns signals plus a verdict.
+integrity and returns signals plus a verdict. It does not send data back to our servers.
 
 ~ What it checks for
-Five groups. Four are policy toggles you set to `ALLOW` or `BLOCK`; app-integrity is always
-enforced.
 
 | Group | Toggle | What it looks for |
 |-------|--------|-------------------|
 | App integrity | always on | The running app is the original signed build (signing cert, native-lib and resource digests, repackager/cloner artifacts, signing-block parse) |
-| Emulator | ALLOW \| BLOCK | Signs the app is running on an emulator / virtual device rather than real hardware (CPU/ISA, GPU, sensors, device nodes, build props) |
 | Instrumentation | ALLOW \| BLOCK | Runtime hooking / code injection (ART method hooks, inline-hook residue, injected libraries) |
+| Emulator | ALLOW \| BLOCK | Signs the app is running on an emulator / virtual device rather than real hardware (CPU/ISA, GPU, sensors, device nodes, build props) |
 | Root | ALLOW \| BLOCK | Signs of an unhidden rooted device (world-visible su, live Magisk/Zygisk/APatch daemon socket, module mount residue, a known root-manager app, kernel root token, privileged/non-zygote launch context) |
-| Bootloader / custom ROM | ALLOW \| BLOCK | Unlocked bootloader / custom ROM indicators (verified-boot state, ROM system features, ROM signing, ROM build props) |
+| Custom ROM / unlocked Bootloader | ALLOW \| BLOCK | Unlocked bootloader / custom ROM indicators (verified-boot state, ROM system features, ROM signing, ROM build props) |
+
+BlackHex actively hunts only for values that can be confirmed without server verdicts. Device fingerprint, promo abuse and coordinated actions are not included in the free tier because they would violate this exact principle.
 
 Every check reports either CLEAN, DETECTED, or INCONCLUSIVE.
+Four are policy toggles you set to `ALLOW` or `BLOCK`; app-integrity is always
+enforced.
 
+Unless yours is a Fintech app or similar, we discourage to block access to Root / Custom ROM / unlocked Bootloader / Emulators. While their presence has a strong correlation with fraud, it also represents a portion of real traffic. Using them only as signals is adviced.
+On the other side, App Integrity and Instrumentation are always and unambiguously a sign of fraud. Someone is trying to change how your app behaves and not for benign purposes.
 
-### Honest limits
+### Keep in mind
 
 - **Root detection catches UNHIDDEN root only** — including unhidden modern Magisk, caught via
   its mount residue and manager app. It does NOT catch hidden root (Magisk DenyList /
