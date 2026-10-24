@@ -48,9 +48,10 @@ On the other side, App Integrity and Instrumentation are always and unambiguousl
 ## Usage
 
 ```kotlin
-import rasp.sdk.Rasp
+import rasp.sdk.BlackHex
 import rasp.sdk.Policy
 import rasp.sdk.Mode
+import rasp.sdk.Verdict
 
 val policy = Policy(
     emulator = Mode.BLOCK,
@@ -60,7 +61,7 @@ val policy = Policy(
 )
 
 // Call off the main thread, at startup and at sensitive moments (login, payment).
-val report = Rasp.check(context, policy)
+val report = BlackHex.check(context, policy)
 
 when (report.verdict) {
     Verdict.PASS  -> proceed()
