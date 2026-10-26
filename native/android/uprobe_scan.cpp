@@ -70,7 +70,7 @@ NativeResult check_uprobe_residue() {
         if (!v.executable()) continue;
         const std::string& p = v.path;
         if (p.empty() || p[0] == '[') continue;
-        bool want = is_own_vma(p) || ends_with(p, "/libc.so") || p.find("librasp") != std::string::npos;
+        bool want = is_own_vma(p) || ends_with(p, "/libc.so") || p.find("libblackhex") != std::string::npos;
         if (!want) continue;
         scanned++;
         uint64_t hit = 0;

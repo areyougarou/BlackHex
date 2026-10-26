@@ -28,7 +28,7 @@ void find_vdso() {
 
 bool want_module(const char* name) {
     if (!name || !name[0]) return false;
-    if (strstr(name, "librasp")) return true;
+    if (strstr(name, "libblackhex")) return true;
     const char* b = strrchr(name, '/'); b = b ? b + 1 : name;
     return strcmp(b, "libc.so") == 0 || strcmp(b, "libart.so") == 0;
 }
