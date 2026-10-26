@@ -17,7 +17,6 @@ internal object CloneProbe {
     fun collect(ctx: Context): List<Signal> {
         val maps = try { File("/proc/self/maps").readText() } catch (_: Throwable) { "" }
         return listOf(
-            timedSignal("CLV_MAPS_FOREIGN_APK", "CLONE", "MEDIUM") { mapsForeignApk(ctx, maps) },
             timedSignal("CLV_MAPS_ENGINE_STRING", "CLONE", "MEDIUM") { mapsEngineString(maps) },
             timedSignal("CLV_CGROUP_UID_MISMATCH", "CLONE", "MEDIUM") { cgroupUid() },
             timedSignal("CLV_SIGCERT_MISMATCH", "CLONE", "MEDIUM") { sigcert(ctx) },
@@ -25,16 +24,6 @@ internal object CloneProbe {
             timedSignal("CLV_PKGNAME_MISMATCH", "CLONE", "MEDIUM") { pkgName(ctx) },
             timedSignal("CLV_AM_SINGLETON_PROXY", "CLONE", "MEDIUM") { amSingletonProxy() },
         )
-    }
-
-    private fun mapsForeignApk(ctx: Context, maps: String): Pair<Status, String> {
-        if (maps.isBlank()) return Status.INCONCLUSIVE to "maps empty/blocked"
-        val pkg = ctx.packageName
-        val userApks = maps.lineSequence().map { it.substringAfterLast(' ') }
-            .filter { it.endsWith(".apk") && it.startsWith("/data/") }.toSet()
-        val foreign = userApks.filter { !it.contains(pkg) }
-        return (if (foreign.isNotEmpty()) Status.DETECTED else Status.CLEAN) to
-            "userApks=${userApks.size} foreign=${foreign.take(3)}"
     }
 
     private fun mapsEngineString(maps: String): Pair<Status, String> {

@@ -1,6 +1,8 @@
 package rasp.sdk
 
 import android.content.Context
+import android.os.Build
+import android.os.Process
 import org.json.JSONArray
 
 enum class Status { CLEAN, DETECTED, INCONCLUSIVE, NOT_APPLICABLE }
@@ -64,19 +66,7 @@ object BlackHex {
     @Synchronized
     fun check(context: Context, policy: Policy = Policy()): Report {
         val t0 = System.nanoTime()
-        val arr = JSONArray(NativeCore.run(Baselines.signer))
-        val signals = ArrayList<Signal>(arr.length() + 16)
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            signals += Signal(
-                id = o.getString("id"),
-                category = o.getString("category"),
-                severity = o.getString("severity"),
-                status = Status.entries[o.getInt("status")],
-                details = o.getString("details"),
-                micros = o.getLong("us"),
-            )
-        }
+        val signals = ArrayList(nativeSignals())
         signals += AppProbe.collect(context)
         signals += TamperProbe.collect(context)
         signals += CustomRomProbe.collect(context)
@@ -88,6 +78,28 @@ object BlackHex {
         }
         val verdict = if (enforced.isNotEmpty()) Verdict.BLOCK else Verdict.PASS
         return Report(signals, verdict, enforced, (System.nanoTime() - t0) / 1_000_000)
+    }
+
+    private fun nativeSignals(): List<Signal> {
+        val t0 = System.nanoTime()
+        val failure = NativeCore.loadError ?: try {
+            val arr = JSONArray(NativeCore.run(Baselines.signer))
+            return (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                Signal(
+                    id = o.getString("id"),
+                    category = o.getString("category"),
+                    severity = o.getString("severity"),
+                    status = Status.entries[o.getInt("status")],
+                    details = o.getString("details"),
+                    micros = o.getLong("us"),
+                )
+            }
+        } catch (t: Throwable) { t }
+        val details = "native checks did not run: ${failure.javaClass.simpleName}: ${failure.message}" +
+            " abis=${Build.SUPPORTED_ABIS.joinToString(",")} is64=${Process.is64Bit()}"
+        return listOf(Signal("NATIVE_CORE", "INTEGRITY", "HIGH", Status.INCONCLUSIVE, details,
+            (System.nanoTime() - t0) / 1000))
     }
 
     private val scoreOnly = setOf("HOOK_BYTES_DIRECT", "HOOK_BYTES_MEM")
