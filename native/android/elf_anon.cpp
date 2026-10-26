@@ -25,12 +25,12 @@ bool is_candidate_region(const VmaEntry& v) {
     return false;
 }
 
-bool region_is_dynamic_elf(int memfd, const VmaEntry& v) {
+bool region_is_dynamic_elf(const VmaEntry& v) {
     if (!v.readable()) return false;
     if (v.size() < sizeof(Elf64_Ehdr)) return false;
 
     Elf64_Ehdr eh;
-    if (pread(memfd, &eh, sizeof(eh), (off_t)v.start) != (ssize_t)sizeof(eh)) return false;
+    if (!safe_read_mem(v.start, &eh, sizeof(eh))) return false;
     if (!(eh.e_ident[0] == 0x7f && eh.e_ident[1] == 'E' &&
           eh.e_ident[2] == 'L'  && eh.e_ident[3] == 'F')) return false;
     if (eh.e_ident[EI_CLASS] != ELFCLASS64) return false;
@@ -42,8 +42,8 @@ bool region_is_dynamic_elf(int memfd, const VmaEntry& v) {
     unsigned n = eh.e_phnum > 128 ? 128 : eh.e_phnum;
     for (unsigned i = 0; i < n; i++) {
         Elf64_Phdr ph;
-        off_t at = (off_t)(v.start + eh.e_phoff + (uint64_t)i * eh.e_phentsize);
-        if (pread(memfd, &ph, sizeof(ph), at) != (ssize_t)sizeof(ph)) return false;
+        uintptr_t at = (uintptr_t)(v.start + eh.e_phoff + (uint64_t)i * eh.e_phentsize);
+        if (!safe_read_mem(at, &ph, sizeof(ph))) return false;
         if (ph.p_type == PT_DYNAMIC) return true;
     }
     return false;
@@ -58,11 +58,10 @@ NativeResult check_elf_in_anon() {
     r.category = CAT_MAPS;
     r.severity = SEV_HIGH;
 
-    int memfd = open("/proc/self/mem", O_RDONLY | O_CLOEXEC);
-    if (memfd < 0) {
+    uint32_t probe;
+    if (!safe_read_mem((uintptr_t)&check_elf_in_anon, &probe, sizeof(probe))) {
         r.status = STATUS_INCONCLUSIVE;
-        r.details = "could not open /proc/self/mem";
-
+        r.details = "self-memory read unavailable";
         return r;
     }
 
@@ -71,7 +70,7 @@ NativeResult check_elf_in_anon() {
     for (const auto& v : g_maps) {
         if (!is_candidate_region(v)) continue;
         if (is_own_vma(v.path)) continue;
-        if (!region_is_dynamic_elf(memfd, v)) continue;
+        if (!region_is_dynamic_elf(v)) continue;
         hits++;
         char line[256];
         snprintf(line, sizeof(line), "  %llx-%llx %s %s <<ELF+PT_DYNAMIC\n",
@@ -80,7 +79,6 @@ NativeResult check_elf_in_anon() {
         detail += line;
         if (hits >= 32) break;
     }
-    close(memfd);
 
     r.status = hits > 0 ? STATUS_DETECTED : STATUS_CLEAN;
     r.details = hits > 0

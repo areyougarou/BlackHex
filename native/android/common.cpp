@@ -60,11 +60,46 @@ std::string read_proc_file(const char* path) {
     return ss.str();
 }
 
+ssize_t safe_read_mem_n(uintptr_t addr, void* out, size_t len) {
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC | O_NONBLOCK) != 0) return -1;
+    uint8_t* dst = static_cast<uint8_t*>(out);
+    size_t done = 0;
+    while (done < len) {
+        size_t chunk = len - done;
+        if (chunk > 4096) chunk = 4096;
+        ssize_t w = write(fds[1], reinterpret_cast<const void*>(addr + done), chunk);
+        if (w <= 0) break;
+        ssize_t got = 0;
+        while (got < w) {
+            ssize_t rd = read(fds[0], dst + done + got, (size_t)(w - got));
+            if (rd <= 0) break;
+            got += rd;
+        }
+        done += (size_t)got;
+        if (got < w || w < (ssize_t)chunk) break;
+    }
+    close(fds[0]);
+    close(fds[1]);
+    return (ssize_t)done;
+}
+
 bool safe_read_mem(uintptr_t addr, void* out, size_t len) {
-    static int mem_fd = open("/proc/self/mem", O_RDONLY | O_CLOEXEC);
-    if (mem_fd < 0) return false;
-    ssize_t n = pread(mem_fd, out, len, (off_t)addr);
-    return n == (ssize_t)len;
+    return safe_read_mem_n(addr, out, len) == (ssize_t)len;
+}
+
+size_t read_disk_bytes_for_addr(uintptr_t addr, void* out, size_t len) {
+    const VmaEntry* v = nullptr;
+    for (const auto& e : g_maps)
+        if (addr >= e.start && addr < e.end) { v = &e; break; }
+    if (!v || v->path.empty() || v->path[0] == '[') return 0;
+    if (v->path.find("memfd:") != std::string::npos) return 0;
+    int fd = open(v->path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    off64_t off = (off64_t)(v->offset + (addr - v->start));
+    ssize_t n = pread64(fd, out, len, off);
+    close(fd);
+    return n > 0 ? (size_t)n : 0;
 }
 
 std::string json_escape(const std::string& s) {

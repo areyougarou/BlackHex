@@ -57,11 +57,12 @@ bool target_suspect(uintptr_t target, std::string& where) {
     return true;
 }
 
-struct Ctx { int memfd; int checked; int hits; std::string detail; };
+struct Ctx { int checked; int hits; int modules; std::string detail; };
 
 int phdr_cb(struct dl_phdr_info* info, size_t, void* data) {
     Ctx* c = static_cast<Ctx*>(data);
     if (c->hits >= 64 || !want_module(info->dlpi_name)) return 0;
+    c->modules++;
     uintptr_t base = (uintptr_t)info->dlpi_addr;
 
     const ElfW(Dyn)* dyn = nullptr;
@@ -91,11 +92,11 @@ int phdr_cb(struct dl_phdr_info* info, size_t, void* data) {
 
     for (size_t i = 0; i < n; i++) {
         ElfW(Rela) rr;
-        if (pread(c->memfd, &rr, sizeof(rr), (off_t)(jmprel + i * sizeof(ElfW(Rela)))) != (ssize_t)sizeof(rr)) break;
+        if (!safe_read_mem(jmprel + i * sizeof(ElfW(Rela)), &rr, sizeof(rr))) break;
         if (ELF64_R_TYPE(rr.r_info) != R_AARCH64_JUMP_SLOT) continue;
 
         uintptr_t target = 0;
-        if (pread(c->memfd, &target, sizeof(target), (off_t)(base + rr.r_offset)) != (ssize_t)sizeof(target)) continue;
+        if (!safe_read_mem(base + rr.r_offset, &target, sizeof(target))) continue;
         if (target == 0) continue;
         c->checked++;
 
@@ -107,9 +108,9 @@ int phdr_cb(struct dl_phdr_info* info, size_t, void* data) {
         if (symtab && strtab) {
             ElfW(Sym) s;
             uint32_t si = (uint32_t)ELF64_R_SYM(rr.r_info);
-            if (pread(c->memfd, &s, sizeof(s), (off_t)(symtab + (size_t)si * sizeof(ElfW(Sym)))) == (ssize_t)sizeof(s)) {
+            if (safe_read_mem(symtab + (size_t)si * sizeof(ElfW(Sym)), &s, sizeof(s))) {
                 char nbuf[96] = {0};
-                if (pread(c->memfd, nbuf, sizeof(nbuf) - 1, (off_t)(strtab + s.st_name)) > 0) sym = nbuf;
+                if (safe_read_mem_n(strtab + s.st_name, nbuf, sizeof(nbuf) - 1) > 0) sym = nbuf;
             }
         }
         char line[256];
@@ -131,13 +132,19 @@ NativeResult check_got_plt_integrity() {
     r.severity = SEV_CRITICAL;
 
     find_vdso();
-    Ctx c; c.memfd = open("/proc/self/mem", O_RDONLY | O_CLOEXEC); c.checked = 0; c.hits = 0;
-    if (c.memfd < 0) {
-        r.status = STATUS_INCONCLUSIVE; r.details = "could not open /proc/self/mem";
+    Ctx c; c.checked = 0; c.hits = 0; c.modules = 0;
+    uint32_t probe;
+    if (!safe_read_mem((uintptr_t)&check_got_plt_integrity, &probe, sizeof(probe))) {
+        r.status = STATUS_INCONCLUSIVE; r.details = "self-memory read unavailable";
         return r;
     }
     dl_iterate_phdr(phdr_cb, &c);
-    close(c.memfd);
+    if (c.checked == 0) {
+        r.status = STATUS_INCONCLUSIVE;
+        char h[96]; snprintf(h, sizeof(h), "no GOT/PLT slot could be read (modules=%d)", c.modules);
+        r.details = h;
+        return r;
+    }
 
     char head[96];
     snprintf(head, sizeof(head), "checked=%d hits=%d\n", c.checked, c.hits);

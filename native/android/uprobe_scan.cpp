@@ -15,14 +15,14 @@ bool ends_with(const std::string& s, const char* suf) {
     return s.size() >= n && s.compare(s.size() - n, n, suf) == 0;
 }
 
-bool scan_region(int fd, uint64_t start, uint64_t end, uint64_t& hit) {
+bool scan_region(uint64_t start, uint64_t end, uint64_t& hit) {
     const size_t CH = 65536;
     static uint8_t buf[CH];
     uint64_t cap = start + (24u << 20);
     if (end > cap) end = cap;
     for (uint64_t off = start; off < end; ) {
         size_t want = (end - off < CH) ? (size_t)(end - off) : CH;
-        ssize_t got = pread(fd, buf, want, (off_t)off);
+        ssize_t got = safe_read_mem_n(off, buf, want);
         if (got <= 0) break;
         size_t g = (size_t)got & ~3u;
         for (size_t i = 0; i + 4 <= g; i += 4) {
@@ -57,11 +57,10 @@ NativeResult check_uprobe_residue() {
             break;
         }
 
-    int fd = open("/proc/self/mem", O_RDONLY | O_CLOEXEC);
-    if (fd < 0) {
+    uint32_t probe;
+    if (!safe_read_mem((uintptr_t)&check_uprobe_residue, &probe, sizeof(probe))) {
         r.status = hits ? STATUS_DETECTED : STATUS_INCONCLUSIVE;
-        r.details = hits ? detail : "could not open /proc/self/mem";
-
+        r.details = hits ? detail : "self-memory read unavailable";
         return r;
     }
 
@@ -74,7 +73,7 @@ NativeResult check_uprobe_residue() {
         if (!want) continue;
         scanned++;
         uint64_t hit = 0;
-        if (scan_region(fd, v.start, v.end, hit)) {
+        if (scan_region(v.start, v.end, hit)) {
             hits++;
             char line[192];
             snprintf(line, sizeof(line), "  BRK#0x5 @ %llx in %s\n",
@@ -82,7 +81,6 @@ NativeResult check_uprobe_residue() {
             detail += line;
         }
     }
-    close(fd);
 
     char head[96];
     snprintf(head, sizeof(head), "regions_scanned=%d hits=%d\n", scanned, hits);

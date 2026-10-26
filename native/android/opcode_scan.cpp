@@ -2,6 +2,7 @@
 #include <dlfcn.h>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 namespace {
@@ -17,6 +18,10 @@ inline bool is_br(uint32_t i)     { return (i & 0xFFFFFC1Fu) == 0xD61F0000u; }
 inline bool is_brk(uint32_t i)    { return (i & 0xFFE0001Fu) == 0xD4200000u; }
 inline bool is_ldr_lit(uint32_t i){ return (i & 0xFF000000u) == 0x58000000u; }
 inline bool is_adrp(uint32_t i)   { return (i & 0x9F000000u) == 0x90000000u; }
+inline bool is_landing_pad(uint32_t i) {
+    return i == 0xD503245Fu || i == 0xD503249Fu || i == 0xD50324DFu ||
+           i == 0xD503241Fu || i == 0xD503233Fu || i == 0xD503237Fu;
+}
 
 const VmaEntry* vma_for(uint64_t a) {
     for (const auto& v : g_maps)
@@ -57,25 +62,39 @@ NativeResult check_opcode_trampoline() {
         void* p = dlsym(RTLD_DEFAULT, *s);
         if (!p) continue;
         resolved++;
-        uint32_t w[4];
-        if (!safe_read_mem((uintptr_t)p, w, sizeof(w))) continue;
+        uint32_t w[6];
+        if (safe_read_mem_n((uintptr_t)p, w, sizeof(w)) != (ssize_t)sizeof(w)) continue;
         readable++;
-        if (const char* why = classify(w, (uintptr_t)p)) {
-            hooked++;
-            char line[200];
-            snprintf(line, sizeof(line), "  %s @%p insn0=0x%08x: %s\n", *s, p, w[0], why);
-            detail += line;
-        }
+        int bi = is_landing_pad(w[0]) ? 1 : 0;
+        const char* why = classify(w + bi, (uintptr_t)p + (uintptr_t)bi * 4);
+        if (!why) continue;
+        uint32_t disk[6];
+        size_t need = (size_t)(bi + 3) * 4;
+        size_t dn = read_disk_bytes_for_addr((uintptr_t)p, disk, sizeof(disk));
+        if (dn >= need && memcmp(w, disk, need) == 0) continue;
+        hooked++;
+        const VmaEntry* v = vma_for((uintptr_t)p);
+        bool filebacked = v && !v->path.empty() && v->path[0] != '[' && v->path.find("memfd:") == std::string::npos;
+        char line[256];
+        snprintf(line, sizeof(line), "  %s @%p insn0=0x%08x: %s (%s)\n", *s, p, w[bi], why,
+                 filebacked ? "differs from on-disk library" : "code not backed by a file");
+        detail += line;
     }
 
     std::string raw = "resolved=" + std::to_string(resolved) +
                       " readable=" + std::to_string(readable) +
                       " hooked=" + std::to_string(hooked);
-    if (readable == 0)   r.status = STATUS_INCONCLUSIVE;
-    else if (hooked > 0) r.status = STATUS_DETECTED;
-    else                 r.status = STATUS_CLEAN;
-    r.details = hooked ? raw + "\n" + detail
-                       : "no entry-prologue trampoline on watched fns (" + raw + ")";
+    if (readable == 0) {
+        r.status = STATUS_INCONCLUSIVE;
+        r.details = "self-memory read failed on all watched fns (" + raw + ")";
+    } else if (hooked > 0) {
+        r.status = STATUS_DETECTED;
+        r.certainty = CERT_STRONG;
+        r.details = raw + "\n" + detail;
+    } else {
+        r.status = STATUS_CLEAN;
+        r.details = "no entry-prologue trampoline differing from the on-disk library (" + raw + ")";
+    }
 
     return r;
 }
