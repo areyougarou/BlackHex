@@ -20,5 +20,5 @@ add_library(rasp SHARED
 
 target_include_directories(rasp PRIVATE android)
 target_compile_options(rasp PRIVATE -std=c++17 -O2 -fvisibility=hidden -fvisibility-inlines-hidden)
-target_link_options(rasp PRIVATE -Wl,--exclude-libs,ALL)
+target_link_options(rasp PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 target_link_libraries(rasp log dl vulkan android z)
