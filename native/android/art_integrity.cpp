@@ -75,7 +75,7 @@ NativeResult check_art_entrypoint_integrity(JNIEnv* env) {
     NativeResult r;
     r.id = "ART_ENTRYPOINT_INTEGRITY";
 
-    r.category = CAT_INTEGRITY;
+    r.category = CAT_HOOKS;
     r.severity = SEV_CRITICAL;
 
     int checked = 0, detected = 0, inconclusive = 0, controls_checked = 0, controls_suspect = 0;

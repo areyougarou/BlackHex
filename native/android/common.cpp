@@ -34,15 +34,17 @@ std::vector<VmaEntry> read_maps() {
     FILE* f = fopen("/proc/self/maps", "r");
     if (!f) return result;
 
-    char line[512];
+    char line[4352];
     while (fgets(line, sizeof(line), f)) {
         VmaEntry e{};
-        char path[256] = {};
+        int n = 0;
 
-        if (sscanf(line, "%lx-%lx %7s %lx %x:%x %lu %255s",
+        if (sscanf(line, "%lx-%lx %7s %lx %x:%x %lu%n",
                    &e.start, &e.end, e.perms, &e.offset, &e.dev_major, &e.dev_minor,
-                   &e.inode, path) >= 7) {
-            e.path = path;
+                   &e.inode, &n) >= 7) {
+            const char* p = line + n;
+            while (*p == ' ' || *p == '\t') p++;
+            e.path.assign(p, strcspn(p, "\r\n"));
             result.push_back(e);
         }
     }
@@ -100,6 +102,7 @@ std::string results_to_json(const std::vector<NativeResult>& results) {
            << "\"severity\":\"" << r.severity << "\","
            << "\"status\":" << r.status << ","
            << "\"us\":" << r.us << ","
+           << "\"certainty\":" << (r.certainty == CERT_UNSET ? CERT_WEAK : r.certainty) << ","
            << "\"details\":\"" << json_escape(r.details) << "\""
            << "}";
     }

@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/syscall.h>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -169,9 +170,18 @@ NativeResult check_tamper_signing_block(){
     }
     if(cert_hash.empty()){ r.status=STATUS_INCONCLUSIVE; r.details="no parseable v2/v3 signer cert - not judging"; return r; }
 
-    std::string pin=g_signer_baseline;
-    if(pin.empty()){ r.status=STATUS_INCONCLUSIVE; r.details="signer baseline unset - pin this: "+cert_hash+" ("+scheme+")"; return r; }
-    if(cert_hash==pin){ r.status=STATUS_CLEAN; r.details="native signer matches pin ("+std::string(scheme)+"): "+cert_hash.substr(0,16)+"..."; }
-    else { r.status=STATUS_DETECTED; r.details="native signer MISMATCH ("+std::string(scheme)+"): live="+cert_hash.substr(0,16)+"... pinned="+pin.substr(0,16)+"..."; }
+    std::vector<std::string> pins; std::string cur;
+    for(size_t i=0;i<=g_signer_baseline.size();i++){
+        char c = i<g_signer_baseline.size() ? g_signer_baseline[i] : ',';
+        if(c==','){ if(!cur.empty()) pins.push_back(cur); cur.clear(); }
+        else if(c!=':' && c!=' ') cur += (char)tolower((unsigned char)c);
+    }
+    if(pins.empty()){ r.status=STATUS_INCONCLUSIVE; r.details="signer baseline unset - pin this: "+cert_hash+" ("+scheme+")"; return r; }
+    std::string pinned;
+    for(const auto& p : pins){
+        if(p==cert_hash){ r.status=STATUS_CLEAN; r.details="native signer matches pin ("+std::string(scheme)+"): "+cert_hash.substr(0,16)+"..."; return r; }
+        pinned += p.substr(0,16)+"... ";
+    }
+    r.status=STATUS_DETECTED; r.details="native signer MISMATCH ("+std::string(scheme)+"): live="+cert_hash.substr(0,16)+"... pinned="+pinned;
     return r;
 }

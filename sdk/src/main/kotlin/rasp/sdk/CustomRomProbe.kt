@@ -6,8 +6,8 @@ import android.content.pm.PackageManager
 internal object CustomRomProbe {
 
     fun collect(ctx: Context): List<Signal> = listOf(
-        timedSignal("CROM_FEATURE", "CUSTOM_ROM", "HIGH") { feature(ctx) },
-        timedSignal("CROM_PKG_CLUSTER", "CUSTOM_ROM", "MEDIUM") { pkgCluster(ctx) },
+        timedSignal("CROM_FEATURE", "CUSTOM_ROM", "HIGH", Certainty.PROOF) { feature(ctx) },
+        timedSignal("CROM_PKG_CLUSTER", "CUSTOM_ROM", "MEDIUM", Certainty.WEAK) { pkgCluster(ctx) },
     )
 
     private const val POLICY = " [policy WEIGHT, not malicious]"

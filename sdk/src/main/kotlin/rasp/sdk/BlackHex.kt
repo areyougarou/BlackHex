@@ -1,11 +1,15 @@
 package rasp.sdk
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Process
+import android.util.Log
 import org.json.JSONArray
 
 enum class Status { CLEAN, DETECTED, INCONCLUSIVE, NOT_APPLICABLE }
+
+enum class Certainty { PROOF, STRONG, WEAK }
 
 enum class Mode { ALLOW, BLOCK }
 
@@ -25,6 +29,7 @@ data class Signal(
     val status: Status,
     val details: String,
     val micros: Long,
+    val certainty: Certainty = Certainty.WEAK,
 )
 
 data class Report(
@@ -38,6 +43,7 @@ data class Report(
 
 class BaselineBuilder {
     var signer: String? = null
+    var signers: Set<String> = emptySet()
     var packageName: String? = null
     var resources: String? = null
     var nativeLib: String? = null
@@ -45,7 +51,7 @@ class BaselineBuilder {
 }
 
 internal object Baselines {
-    @Volatile var signer: String? = null
+    @Volatile var signers: Set<String> = emptySet()
     @Volatile var packageName: String? = null
     @Volatile var resources: String? = null
     @Volatile var nativeLib: String? = null
@@ -56,7 +62,10 @@ object BlackHex {
 
     fun baseline(block: BaselineBuilder.() -> Unit) {
         val b = BaselineBuilder().apply(block)
-        Baselines.signer = b.signer
+        Baselines.signers = (b.signers + listOfNotNull(b.signer))
+            .map { pin -> pin.filterNot { it == ':' || it.isWhitespace() }.lowercase() }
+            .filter { it.isNotEmpty() }
+            .toSet()
         Baselines.packageName = b.packageName
         Baselines.resources = b.resources
         Baselines.nativeLib = b.nativeLib
@@ -73,8 +82,15 @@ object BlackHex {
         signals += CloneProbe.collect(context)
         signals += RootManagerProbe.collect(context)
 
+        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            signals.filter { it.status == Status.DETECTED && it.id in signerIds }.forEach {
+                Log.w("BlackHex", "${it.id}: signer pin mismatch (${it.details}). Pin the SHA-256 of every " +
+                    "certificate users install, including the Play app signing key: BlackHex.baseline { signers = setOf(...) }")
+            }
+        }
+
         val enforced = signals.filter {
-            it.status == Status.DETECTED && it.id !in scoreOnly && enforces(groupOf(it.category), policy)
+            it.status == Status.DETECTED && it.certainty != Certainty.WEAK && enforces(groupOf(it.category), policy)
         }
         val verdict = if (enforced.isNotEmpty()) Verdict.BLOCK else Verdict.PASS
         return Report(signals, verdict, enforced, (System.nanoTime() - t0) / 1_000_000)
@@ -83,7 +99,7 @@ object BlackHex {
     private fun nativeSignals(): List<Signal> {
         val t0 = System.nanoTime()
         val failure = NativeCore.loadError ?: try {
-            val arr = JSONArray(NativeCore.run(Baselines.signer))
+            val arr = JSONArray(NativeCore.run(Baselines.signers.joinToString(",").ifEmpty { null }))
             return (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 Signal(
@@ -93,6 +109,7 @@ object BlackHex {
                     status = Status.entries[o.getInt("status")],
                     details = o.getString("details"),
                     micros = o.getLong("us"),
+                    certainty = Certainty.entries.getOrElse(o.optInt("certainty", 2)) { Certainty.WEAK },
                 )
             }
         } catch (t: Throwable) { t }
@@ -102,7 +119,7 @@ object BlackHex {
             (System.nanoTime() - t0) / 1000))
     }
 
-    private val scoreOnly = setOf("HOOK_BYTES_DIRECT", "HOOK_BYTES_MEM")
+    private val signerIds = setOf("TAMPER_SIGNER", "TAMPER_SIGNING_BLOCK", "CLV_SIGCERT_MISMATCH")
 
     private enum class Group { EMULATOR, INSTRUMENTATION, BOOTLOADER, APP_INTEGRITY, ROOT, NONE }
 

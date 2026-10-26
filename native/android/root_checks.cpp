@@ -50,23 +50,82 @@ std::string trimnl(std::string s) {
     return s;
 }
 
+std::vector<std::string> fields(const std::string& s) {
+    std::vector<std::string> out; size_t i = 0;
+    while (i < s.size()) {
+        while (i < s.size() && s[i] == ' ') i++;
+        size_t j = i;
+        while (j < s.size() && s[j] != ' ') j++;
+        if (j > i) out.push_back(s.substr(i, j - i));
+        i = j;
+    }
+    return out;
+}
+
+bool under(const std::string& p, const char* dir) {
+    size_t n = strlen(dir);
+    return p.compare(0, n, dir) == 0 && (p.size() == n || p[n] == '/');
+}
+
+bool system_path(const std::string& p) {
+    for (const char* d : {"/system", "/system_ext", "/vendor", "/product", "/odm"})
+        if (under(p, d)) return true;
+    return false;
+}
+
+std::string option(const std::string& opts, const char* key) {
+    std::string k = std::string(key) + "=";
+    size_t i = 0;
+    while (i < opts.size()) {
+        size_t j = opts.find(',', i);
+        if (j == std::string::npos) j = opts.size();
+        if (opts.compare(i, k.size(), k) == 0) return opts.substr(i + k.size(), j - i - k.size());
+        i = j + 1;
+    }
+    return "";
+}
+
+bool stock_overlay(const std::string& super) {
+    if (!option(super, "upperdir").empty() || !option(super, "workdir").empty()) return false;
+    std::string lower = option(super, "lowerdir");
+    if (lower.empty()) return false;
+    size_t i = 0;
+    while (i < lower.size()) {
+        size_t j = lower.find(':', i);
+        if (j == std::string::npos) j = lower.size();
+        if (!system_path(lower.substr(i, j - i))) return false;
+        i = j + 1;
+    }
+    return true;
+}
+
+std::string lower_ascii(std::string s) {
+    for (char& c : s) if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    return s;
+}
+
 }
 
 NativeResult check_root_su_path() {
     static const char* su_paths[] = {
         "/system/bin/su","/system/xbin/su","/sbin/su","/su/bin/su","/system/sbin/su",
         "/vendor/bin/su","/odm/bin/su","/system/xbin/busybox", nullptr };
-    bool present = false, blocked = false; std::string hit;
+    bool present = false, blocked = false, su = false; std::string hit;
     for (int i = 0; su_paths[i]; i++) {
         errno = 0; long rr = syscall(__NR_faccessat, AT_FDCWD, su_paths[i], F_OK); int re = errno;
-        if (rr == 0) { present = true; hit += std::string(su_paths[i]) + " "; }
+        if (rr == 0) {
+            present = true; hit += std::string(su_paths[i]) + " ";
+            if (strstr(su_paths[i], "busybox") == nullptr) su = true;
+        }
         else if (re != ENOENT) blocked = true;
     }
     int status; std::string d;
     if (present)      { status = STATUS_DETECTED;     d = "su present: " + hit; }
     else if (blocked) { status = STATUS_INCONCLUSIVE; d = "su paths blocked (EACCES) - not a clean read"; }
     else              { status = STATUS_CLEAN;        d = "no su path (all ENOENT)"; }
-    return mk("ROOT_SU_PATH", "su binary path", status, d);
+    NativeResult r = mk("ROOT_SU_PATH", "su binary path", status, d);
+    if (present) r.certainty = su ? CERT_STRONG : CERT_WEAK;
+    return r;
 }
 
 NativeResult check_root_selinux_domain() {
@@ -102,24 +161,44 @@ NativeResult check_root_proc_status() {
 NativeResult check_root_mount_tokens() {
     FileRead r = read_file_raw("/proc/self/mountinfo");
     if (!r.ok) return mk("ROOT_MOUNT_TOKENS", "mount residue", STATUS_INCONCLUSIVE, errname(r.err));
-    int overlay = 0, tmpfs_sys = 0, token = 0, lines = 0; size_t pos = 0;
+    struct Mount { std::string dev, root, point, type, source, super; };
+    std::vector<Mount> mounts; std::string data_dev; size_t pos = 0;
     while (pos < r.data.size()) {
         size_t nl = r.data.find('\n', pos);
         std::string line = r.data.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
         pos = (nl == std::string::npos) ? r.data.size() : nl + 1;
-        if (line.empty()) continue; lines++;
-        bool sysdir = line.find(" /system") != std::string::npos ||
-                      line.find(" /vendor") != std::string::npos ||
-                      line.find(" /product") != std::string::npos;
-        if (line.find(" overlay ") != std::string::npos && sysdir) overlay++;
-        if (line.find(" tmpfs ") != std::string::npos && (sysdir || line.find(" /sbin") != std::string::npos)) tmpfs_sys++;
-        if (line.find("magisk") != std::string::npos || line.find("/data/adb") != std::string::npos ||
-            line.find("KSU") != std::string::npos || line.find("worker") != std::string::npos) token++;
+        std::vector<std::string> f = fields(line);
+        size_t sep = 6;
+        while (sep < f.size() && f[sep] != "-") sep++;
+        if (f.size() < 5 || sep + 2 >= f.size()) continue;
+        Mount m{f[2], f[3], f[4], f[sep + 1], f[sep + 2], sep + 3 < f.size() ? f[sep + 3] : ""};
+        if (m.point == "/data") data_dev = m.dev;
+        mounts.push_back(m);
     }
-    bool bad = overlay || tmpfs_sys || token;
+    if (mounts.empty()) return mk("ROOT_MOUNT_TOKENS", "mount residue", STATUS_INCONCLUSIVE, "no parseable mountinfo line");
+    int overlay = 0, stock = 0, tmpfs_sys = 0, data_bind = 0, token = 0; std::string hit;
+    for (const Mount& m : mounts) {
+        bool sys = system_path(m.point);
+        bool bad = false;
+        if (m.type == "overlay" && sys) {
+            if (stock_overlay(m.super)) stock++; else { overlay++; bad = true; }
+        }
+        if (m.type == "tmpfs" && (sys || under(m.point, "/sbin"))) { tmpfs_sys++; bad = true; }
+        if (sys && !data_dev.empty() && m.dev == data_dev) { data_bind++; bad = true; }
+        std::string src = lower_ascii(m.source);
+        if (src == "magisk" || src == "ksu" || src == "apatch" ||
+            m.root.find("/adb/modules") != std::string::npos || m.root.find("/data/adb") != std::string::npos ||
+            m.point.find("/data/adb") != std::string::npos || m.point.find("/debug_ramdisk") != std::string::npos ||
+            m.super.find("/data/adb") != std::string::npos || m.super.find(".magisk") != std::string::npos) {
+            token++; bad = true;
+        }
+        if (bad && hit.size() < 400) hit += " " + m.point + "(" + m.type + "," + m.source + ")";
+    }
+    bool bad = overlay || tmpfs_sys || data_bind || token;
     return mk("ROOT_MOUNT_TOKENS", "mount residue", bad ? STATUS_DETECTED : STATUS_CLEAN,
-              "lines=" + std::to_string(lines) + " overlay_sys=" + std::to_string(overlay) +
-              " tmpfs_sys=" + std::to_string(tmpfs_sys) + " tokens=" + std::to_string(token));
+              "lines=" + std::to_string(mounts.size()) + " overlay_sys=" + std::to_string(overlay) +
+              " stock_overlay=" + std::to_string(stock) + " tmpfs_sys=" + std::to_string(tmpfs_sys) +
+              " data_bind=" + std::to_string(data_bind) + " tokens=" + std::to_string(token) + hit);
 }
 
 NativeResult check_root_kernel_string() {

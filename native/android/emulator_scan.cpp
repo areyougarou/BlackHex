@@ -68,17 +68,23 @@ NativeResult check_emu_props() {
     std::string egl = lower(prop("ro.hardware.egl")), gralloc = lower(prop("ro.hardware.gralloc"));
     std::string bridge = prop("ro.dalvik.vm.native.bridge");
     std::string hit;
-    if (qemu.find('1') != std::string::npos) hit += "qemu=1 ";
+    bool strong = false;
+    if (qemu.find('1') != std::string::npos) { hit += "qemu=1 "; strong = true; }
+    if (hw == "goldfish" || hw == "ranchu" || hw == "vbox86") strong = true;
     for (const char* h : {"goldfish","ranchu","vbox86","nox","ttvm","android_x86","cancro"})
         if (hw == h || hw.find(h) != std::string::npos) { hit += std::string("hardware=") + hw + " "; break; }
     if (abi.find("x86") != std::string::npos) hit += "abi=" + abi + " ";
     if (!bridge.empty() && bridge != "0" && lower(bridge).find("false") == std::string::npos)
         hit += "native_bridge=" + bridge + " ";
     if (egl.find("emulation") != std::string::npos || egl.find("ranchu") != std::string::npos ||
-        gralloc.find("ranchu") != std::string::npos || gralloc.find("emulation") != std::string::npos)
-        hit += "egl/gralloc=emulated ";
+        gralloc.find("ranchu") != std::string::npos || gralloc.find("emulation") != std::string::npos) {
+        hit += "egl/gralloc=emulated "; strong = true;
+    }
     std::string raw = "qemu=[" + qemu + "] hw=" + hw + " abi=" + abi + " bridge=" + bridge;
-    if (!hit.empty()) { r.status = STATUS_DETECTED; r.details = "emulator props: " + hit + "\n" + raw; }
+    if (!hit.empty()) {
+        r.status = STATUS_DETECTED; r.details = "emulator props: " + hit + "\n" + raw;
+        r.certainty = strong ? CERT_STRONG : CERT_WEAK;
+    }
     else { r.status = STATUS_CLEAN; r.details = "no qemu/emulator/x86/native-bridge props\n" + raw; }
     return r;
 }

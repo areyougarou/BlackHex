@@ -23,10 +23,11 @@ static long now_us() {
     return t.tv_sec * 1000000L + t.tv_nsec / 1000;
 }
 
-static NativeResult timed(NativeResult (*check)()) {
+static NativeResult timed(NativeResult (*check)(), int certainty) {
     long t0 = now_us();
     NativeResult r = check();
     r.us = now_us() - t0;
+    if (r.certainty == CERT_UNSET) r.certainty = certainty;
     return r;
 }
 
@@ -42,37 +43,38 @@ Java_rasp_sdk_NativeCore_run(JNIEnv* env, jclass, jstring signer) {
         g_signer_baseline.clear();
     }
     std::vector<NativeResult> results = {
-        timed(check_hook_bytes_direct),
-        timed(check_hook_bytes_mem),
-        timed(check_linker_exports),
-        timed(check_lib_from_root_path),
-        timed(check_maps_integrity),
-        timed(check_got_plt_integrity),
-        timed(check_uprobe_residue),
-        timed(check_opcode_trampoline),
-        timed(check_elf_in_anon),
-        timed(check_emu_cpu_isa),
-        timed(check_emu_translator),
-        timed(check_emu_props),
-        timed(check_emu_devnodes),
-        timed(check_emu_mounts),
-        timed(check_emu_vulkan),
-        timed(check_emu_sensors),
-        timed(check_crom_boot),
-        timed(check_crom_sign),
-        timed(check_crom_rom_props),
-        timed(check_tamper_signing_block),
-        timed(check_root_su_path),
-        timed(check_root_selinux_domain),
-        timed(check_root_proc_status),
-        timed(check_root_mount_tokens),
-        timed(check_root_kernel_string),
-        timed(check_root_magisk_daemon),
+        timed(check_hook_bytes_direct, CERT_WEAK),
+        timed(check_hook_bytes_mem, CERT_WEAK),
+        timed(check_linker_exports, CERT_PROOF),
+        timed(check_lib_from_root_path, CERT_PROOF),
+        timed(check_maps_integrity, CERT_WEAK),
+        timed(check_got_plt_integrity, CERT_STRONG),
+        timed(check_uprobe_residue, CERT_STRONG),
+        timed(check_opcode_trampoline, CERT_WEAK),
+        timed(check_elf_in_anon, CERT_WEAK),
+        timed(check_emu_cpu_isa, CERT_WEAK),
+        timed(check_emu_translator, CERT_WEAK),
+        timed(check_emu_props, CERT_WEAK),
+        timed(check_emu_devnodes, CERT_STRONG),
+        timed(check_emu_mounts, CERT_WEAK),
+        timed(check_emu_vulkan, CERT_STRONG),
+        timed(check_emu_sensors, CERT_STRONG),
+        timed(check_crom_boot, CERT_STRONG),
+        timed(check_crom_sign, CERT_WEAK),
+        timed(check_crom_rom_props, CERT_STRONG),
+        timed(check_tamper_signing_block, CERT_STRONG),
+        timed(check_root_su_path, CERT_WEAK),
+        timed(check_root_selinux_domain, CERT_WEAK),
+        timed(check_root_proc_status, CERT_PROOF),
+        timed(check_root_mount_tokens, CERT_WEAK),
+        timed(check_root_kernel_string, CERT_STRONG),
+        timed(check_root_magisk_daemon, CERT_STRONG),
     };
     {
         long t0 = now_us();
         NativeResult r = check_art_entrypoint_integrity(env);
         r.us = now_us() - t0;
+        if (r.certainty == CERT_UNSET) r.certainty = CERT_WEAK;
         results.push_back(r);
     }
     return env->NewStringUTF(results_to_json(results).c_str());

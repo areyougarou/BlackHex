@@ -9,10 +9,10 @@ internal object AppProbe {
 
     @Suppress("UNUSED_PARAMETER")
     fun collect(ctx: Context): List<Signal> = listOf(
-        timed("EMU_GL", "HIGH") { glRenderer() },
+        timed("EMU_GL", "HIGH", Certainty.WEAK) { glRenderer() },
     )
 
-    private fun timed(id: String, sev: String, block: () -> Pair<Status, String>): Signal {
+    private fun timed(id: String, sev: String, certainty: Certainty, block: () -> Pair<Status, String>): Signal {
         val t0 = System.nanoTime()
         var result: Pair<Status, String>? = null
         val worker = Thread {
@@ -20,7 +20,7 @@ internal object AppProbe {
         }.apply { isDaemon = true; start() }
         worker.join(2000)
         val (st, det) = result ?: (Status.INCONCLUSIVE to "probe timed out (>2s) - stalled HAL (emulator-like)")
-        return Signal(id, "EMULATOR", sev, st, det, (System.nanoTime() - t0) / 1000)
+        return Signal(id, "EMULATOR", sev, st, det, (System.nanoTime() - t0) / 1000, certainty)
     }
 
     private fun glRenderer(): Pair<Status, String> {

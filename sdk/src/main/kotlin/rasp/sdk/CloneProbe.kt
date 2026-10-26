@@ -1,6 +1,5 @@
 package rasp.sdk
 
-import android.content.pm.PackageManager
 import android.content.Context
 import android.os.Process
 import java.io.File
@@ -17,12 +16,12 @@ internal object CloneProbe {
     fun collect(ctx: Context): List<Signal> {
         val maps = try { File("/proc/self/maps").readText() } catch (_: Throwable) { "" }
         return listOf(
-            timedSignal("CLV_MAPS_ENGINE_STRING", "CLONE", "MEDIUM") { mapsEngineString(maps) },
-            timedSignal("CLV_CGROUP_UID_MISMATCH", "CLONE", "MEDIUM") { cgroupUid() },
-            timedSignal("CLV_SIGCERT_MISMATCH", "CLONE", "MEDIUM") { sigcert(ctx) },
-            timedSignal("CLV_DEX_CRC", "CLONE", "MEDIUM") { dexCrc(ctx) },
-            timedSignal("CLV_PKGNAME_MISMATCH", "CLONE", "MEDIUM") { pkgName(ctx) },
-            timedSignal("CLV_AM_SINGLETON_PROXY", "CLONE", "MEDIUM") { amSingletonProxy() },
+            timedSignal("CLV_MAPS_ENGINE_STRING", "CLONE", "MEDIUM", Certainty.WEAK) { mapsEngineString(maps) },
+            timedSignal("CLV_CGROUP_UID_MISMATCH", "CLONE", "MEDIUM", Certainty.WEAK) { cgroupUid() },
+            timedSignal("CLV_SIGCERT_MISMATCH", "CLONE", "MEDIUM", Certainty.PROOF) { TamperProbe.signer(ctx) },
+            timedSignal("CLV_DEX_CRC", "CLONE", "MEDIUM", Certainty.WEAK) { dexCrc(ctx) },
+            timedSignal("CLV_PKGNAME_MISMATCH", "CLONE", "MEDIUM", Certainty.PROOF) { pkgName(ctx) },
+            timedSignal("CLV_AM_SINGLETON_PROXY", "CLONE", "MEDIUM", Certainty.WEAK) { amSingletonProxy() },
         )
     }
 
@@ -41,17 +40,6 @@ internal object CloneProbe {
             m != myUid -> Status.DETECTED to "cgroup uid=$m myUid=$myUid"
             else -> Status.CLEAN to "cgroup uid=$m"
         }
-    }
-
-    private fun sigcert(ctx: Context): Pair<Status, String> {
-        val baseline = Baselines.signer
-            ?: return Status.INCONCLUSIVE to "signer baseline unset - set BlackHex.baseline { signer=... }"
-        val pi = ctx.packageManager.getPackageInfo(ctx.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-        val sig = pi.signingInfo?.apkContentsSigners?.firstOrNull()
-            ?: return Status.INCONCLUSIVE to "no signer"
-        val h = java.security.MessageDigest.getInstance("SHA-256").digest(sig.toByteArray())
-            .joinToString("") { b -> "%02x".format(b) }
-        return (if (h != baseline) Status.DETECTED else Status.CLEAN) to "signer=${h.take(16)} matchesPin=${h == baseline}"
     }
 
     private fun dexCrc(ctx: Context): Pair<Status, String> {

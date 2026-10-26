@@ -22,7 +22,7 @@ internal object RootManagerProbe {
     )
 
     fun collect(ctx: Context): List<Signal> = listOf(
-        timedSignal("ROOT_MANAGER_PKG", "SUBSTRATE", "MEDIUM") { managerPkg(ctx) },
+        timedSignal("ROOT_MANAGER_PKG", "SUBSTRATE", "MEDIUM", Certainty.WEAK) { managerPkg(ctx) },
     )
 
     private fun isInstalled(pm: PackageManager, pkg: String): Boolean =

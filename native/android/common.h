@@ -21,6 +21,11 @@
 #define SEV_MEDIUM   "MEDIUM"
 #define SEV_LOW      "LOW"
 
+#define CERT_UNSET  (-1)
+#define CERT_PROOF  0
+#define CERT_STRONG 1
+#define CERT_WEAK   2
+
 struct NativeResult {
     std::string id;
     std::string category;
@@ -28,6 +33,7 @@ struct NativeResult {
     int status;
     std::string details;
     long us = 0;
+    int certainty = CERT_UNSET;
 };
 
 struct VmaEntry {
