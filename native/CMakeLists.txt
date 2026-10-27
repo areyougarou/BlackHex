@@ -19,6 +19,7 @@ add_library(blackhex SHARED
     android/root_checks.cpp)
 
 target_include_directories(blackhex PRIVATE android)
-target_compile_options(blackhex PRIVATE -std=c++17 -O2 -fvisibility=hidden -fvisibility-inlines-hidden)
+target_compile_options(blackhex PRIVATE -std=c++17 -O2 -fvisibility=hidden -fvisibility-inlines-hidden
+    -ffile-prefix-map=${CMAKE_SOURCE_DIR}=native -ffile-prefix-map=${CMAKE_BINARY_DIR}=build -ffile-prefix-map=${ANDROID_NDK}=ndk)
 target_link_options(blackhex PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 target_link_libraries(blackhex log dl vulkan android z)
