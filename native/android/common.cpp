@@ -60,11 +60,37 @@ std::string read_proc_file(const char* path) {
     return ss.str();
 }
 
+static int g_mem_pipe[2] = {-1, -1};
+
+static bool mem_pipe_open(int fds[2]) {
+    return pipe2(fds, O_CLOEXEC | O_NONBLOCK) == 0;
+}
+
+void mem_run_begin() {
+    if (g_mem_pipe[0] < 0 && !mem_pipe_open(g_mem_pipe)) {
+        g_mem_pipe[0] = g_mem_pipe[1] = -1;
+    }
+}
+
+void mem_run_end() {
+    if (g_mem_pipe[0] >= 0) {
+        close(g_mem_pipe[0]);
+        close(g_mem_pipe[1]);
+        g_mem_pipe[0] = g_mem_pipe[1] = -1;
+    }
+}
+
 ssize_t safe_read_mem_n(uintptr_t addr, void* out, size_t len) {
-    int fds[2];
-    if (pipe2(fds, O_CLOEXEC | O_NONBLOCK) != 0) return -1;
+    int local[2] = {-1, -1};
+    bool use_run = g_mem_pipe[0] >= 0;
+    int* fds = g_mem_pipe;
+    if (!use_run) {
+        if (!mem_pipe_open(local)) return -1;
+        fds = local;
+    }
     uint8_t* dst = static_cast<uint8_t*>(out);
     size_t done = 0;
+    bool torn = false;
     while (done < len) {
         size_t chunk = len - done;
         if (chunk > 4096) chunk = 4096;
@@ -77,10 +103,15 @@ ssize_t safe_read_mem_n(uintptr_t addr, void* out, size_t len) {
             got += rd;
         }
         done += (size_t)got;
-        if (got < w || w < (ssize_t)chunk) break;
+        if (got < w) { torn = true; break; }
+        if (w < (ssize_t)chunk) break;
     }
-    close(fds[0]);
-    close(fds[1]);
+    if (use_run) {
+        if (torn) { mem_run_end(); mem_run_begin(); }
+    } else {
+        close(local[0]);
+        close(local[1]);
+    }
     return (ssize_t)done;
 }
 

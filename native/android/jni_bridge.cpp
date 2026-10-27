@@ -35,6 +35,7 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_rasp_sdk_NativeCore_run(JNIEnv* env, jclass, jstring signer) {
     init_own_process_name();
     g_maps = read_maps();
+    mem_run_begin();
     if (signer) {
         const char* s = env->GetStringUTFChars(signer, nullptr);
         g_signer_baseline = s ? s : "";
@@ -77,5 +78,6 @@ Java_rasp_sdk_NativeCore_run(JNIEnv* env, jclass, jstring signer) {
         if (r.certainty == CERT_UNSET) r.certainty = CERT_WEAK;
         results.push_back(r);
     }
+    mem_run_end();
     return env->NewStringUTF(results_to_json(results).c_str());
 }

@@ -61,6 +61,8 @@ std::string read_proc_file(const char* path);
 
 bool safe_read_mem(uintptr_t addr, void* out, size_t len);
 ssize_t safe_read_mem_n(uintptr_t addr, void* out, size_t len);
+void mem_run_begin();
+void mem_run_end();
 size_t read_disk_bytes_for_addr(uintptr_t addr, void* out, size_t len);
 
 std::string json_escape(const std::string& s);
