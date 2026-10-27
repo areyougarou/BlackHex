@@ -9,32 +9,13 @@
 #define STATUS_INCONCLUSIVE   2
 #define STATUS_NOT_APPLICABLE 3
 
-#define CAT_HOOKS         "HOOK_DETECTION"
-#define CAT_LINKER        "DYNAMIC_LINKER"
-#define CAT_MAPS          "MAPS_ANALYSIS"
-#define CAT_INTEGRITY     "INTEGRITY"
-#define CAT_EMULATOR      "EMULATOR"
-#define CAT_CUSTOM_ROM    "CUSTOM_ROM"
-#define CAT_SUBSTRATE     "SUBSTRATE"
-
-#define SEV_CRITICAL "CRITICAL"
-#define SEV_HIGH     "HIGH"
-#define SEV_MEDIUM   "MEDIUM"
-#define SEV_LOW      "LOW"
-
-#define CERT_UNSET  (-1)
 #define CERT_PROOF  0
 #define CERT_STRONG 1
 #define CERT_WEAK   2
 
 struct NativeResult {
-    std::string id;
-    std::string category;
-    std::string severity;
-    int status;
+    int status = STATUS_INCONCLUSIVE;
     std::string details;
-    long us = 0;
-    int certainty = CERT_UNSET;
 };
 
 struct VmaEntry {
@@ -66,8 +47,6 @@ void mem_run_end();
 size_t read_disk_bytes_for_addr(uintptr_t addr, void* out, size_t len);
 
 std::string json_escape(const std::string& s);
-
-std::string results_to_json(const std::vector<NativeResult>& results);
 
 extern std::string g_own_process_name;
 void  init_own_process_name();

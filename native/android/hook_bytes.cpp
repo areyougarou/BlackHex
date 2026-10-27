@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <vector>
 
 struct HookTarget {
     const char* sym;
@@ -34,12 +35,20 @@ struct ByteCheck {
     bool stock;
 };
 
-static ByteCheck read_hook_bytes(const char* sym) {
+static const std::vector<uintptr_t>& hook_addrs() {
+    static const std::vector<uintptr_t> addrs = [] {
+        std::vector<uintptr_t> a;
+        for (const auto* t = HOOK_TARGETS; t->sym; ++t) a.push_back((uintptr_t)dlsym(RTLD_DEFAULT, t->sym));
+        return a;
+    }();
+    return addrs;
+}
+
+static ByteCheck read_hook_bytes(const char* sym, uintptr_t addr) {
     ByteCheck r{};
     r.sym = sym;
-    void* ptr = dlsym(RTLD_DEFAULT, sym);
-    if (!ptr) return r;
-    r.addr = (uintptr_t)ptr;
+    if (!addr) return r;
+    r.addr = addr;
 
     uint32_t w[4];
     if (safe_read_mem_n(r.addr, w, sizeof(w)) != (ssize_t)sizeof(w)) return r;
@@ -54,34 +63,22 @@ static ByteCheck read_hook_bytes(const char* sym) {
     return r;
 }
 
-static NativeResult hook_bytes_result(const char* id) {
+NativeResult check_hook_bytes() {
     std::ostringstream d;
     int readable = 0, hooked = 0;
-    for (const auto* t = HOOK_TARGETS; t->sym; ++t) {
-        auto c = read_hook_bytes(t->sym);
+    const auto& addrs = hook_addrs();
+    for (size_t i = 0; HOOK_TARGETS[i].sym; ++i) {
+        auto c = read_hook_bytes(HOOK_TARGETS[i].sym, addrs[i]);
         if (!c.read_ok) continue;
         readable++;
         if (c.is_trampoline && !c.stock) {
             hooked++;
-            d << "  " << t->sym << "() @0x" << std::hex << c.addr
+            d << "  " << c.sym << "() @0x" << std::hex << c.addr
               << " insn0=0x" << c.insn << " (LDR X16,[PC,#8] trampoline, differs from on-disk library)\n";
         }
     }
-    if (readable == 0)
-        return { .id = id, .category = CAT_HOOKS, .severity = SEV_CRITICAL,
-                 .status = STATUS_INCONCLUSIVE,
-                 .details = "no watched function readable (self-memory read failed)" };
+    if (readable == 0) return {STATUS_INCONCLUSIVE, "no watched function readable (self-memory read failed)"};
     if (hooked == 0)
-        return { .id = id, .category = CAT_HOOKS, .severity = SEV_CRITICAL,
-                 .status = STATUS_CLEAN,
-                 .details = "no ARM64 trampoline (LDR X16,[PC,#8] = 0x58000050) differing from the on-disk library (readable=" + std::to_string(readable) + ")" };
-    NativeResult r{ .id = id, .category = CAT_HOOKS, .severity = SEV_CRITICAL,
-                    .status = STATUS_DETECTED,
-                    .details = std::to_string(hooked) + " hooked function(s):\n" + d.str() };
-    r.certainty = CERT_STRONG;
-    return r;
+        return {STATUS_CLEAN, "no ARM64 trampoline (LDR X16,[PC,#8] = 0x58000050) differing from the on-disk library (readable=" + std::to_string(readable) + ")"};
+    return {STATUS_DETECTED, std::to_string(hooked) + " hooked function(s):\n" + d.str()};
 }
-
-NativeResult check_hook_bytes_direct() { return hook_bytes_result("HOOK_BYTES_DIRECT"); }
-
-NativeResult check_hook_bytes_mem() { return hook_bytes_result("HOOK_BYTES_MEM"); }

@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -50,16 +51,17 @@ const char* classify(const uint32_t* w, uintptr_t p) {
 }
 
 NativeResult check_opcode_trampoline() {
+    static const std::vector<void*> addrs = [] {
+        std::vector<void*> a;
+        for (const char* const* s = SENSITIVE_FNS; *s; ++s) a.push_back(dlsym(RTLD_DEFAULT, *s));
+        return a;
+    }();
     NativeResult r;
-    r.id = "OPCODE_TRAMPOLINE";
-
-    r.category = CAT_HOOKS;
-    r.severity = SEV_CRITICAL;
-
     int resolved = 0, readable = 0, hooked = 0;
     std::string detail;
-    for (const char* const* s = SENSITIVE_FNS; *s; ++s) {
-        void* p = dlsym(RTLD_DEFAULT, *s);
+    for (size_t i = 0; SENSITIVE_FNS[i]; ++i) {
+        const char* const* s = &SENSITIVE_FNS[i];
+        void* p = addrs[i];
         if (!p) continue;
         resolved++;
         uint32_t w[6];
@@ -89,7 +91,6 @@ NativeResult check_opcode_trampoline() {
         r.details = "self-memory read failed on all watched fns (" + raw + ")";
     } else if (hooked > 0) {
         r.status = STATUS_DETECTED;
-        r.certainty = CERT_STRONG;
         r.details = raw + "\n" + detail;
     } else {
         r.status = STATUS_CLEAN;

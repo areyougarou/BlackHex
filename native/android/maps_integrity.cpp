@@ -24,11 +24,6 @@ bool page_mapped(uintptr_t addr) {
 
 NativeResult check_lib_from_root_path() {
     NativeResult r;
-    r.id = "LIB_FROM_ROOT_PATH";
-
-    r.category = CAT_MAPS;
-    r.severity = SEV_HIGH;
-
     int hits = 0;
     std::string detail;
     for (const auto& v : g_maps) {
@@ -56,11 +51,6 @@ NativeResult check_lib_from_root_path() {
 
 NativeResult check_maps_integrity() {
     NativeResult r;
-    r.id = "MAPS_INTEGRITY";
-
-    r.category = CAT_MAPS;
-    r.severity = SEV_HIGH;
-
     std::string detail;
 
     int order_viol = 0;
@@ -117,4 +107,17 @@ NativeResult check_maps_integrity() {
     r.details = std::string(head) + detail;
 
     return r;
+}
+
+NativeResult check_clone_engine_maps() {
+    static const char* const kEngines[] = {
+        "com.lody.virtual", "io.busniess.va", "com.by.chaos", "com.bly.dkplat", "com.qihoo.magic",
+        "com.lbe.parallel", "com.parallel.space", "com.ludashi.dualspace", "com.excelliance.dualaid",
+        "com.excelliance.multiaccount", "com.cloneapp", "multi.parallel.dualspace", "com.applisto.appclone",
+        "com.vmos", "blackbox", "top.niunaijun", "com.catchingnow.icebox", nullptr };
+    if (g_maps.empty()) return {STATUS_INCONCLUSIVE, "maps empty/blocked"};
+    for (const auto& v : g_maps)
+        for (const char* const* t = kEngines; *t; ++t)
+            if (v.path.find(*t) != std::string::npos) return {STATUS_DETECTED, std::string("engine=") + *t + " in " + v.path};
+    return {STATUS_CLEAN, "no engine token"};
 }

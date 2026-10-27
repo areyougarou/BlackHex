@@ -156,22 +156,3 @@ std::string json_escape(const std::string& s) {
     return out;
 }
 
-std::string results_to_json(const std::vector<NativeResult>& results) {
-    std::ostringstream ss;
-    ss << "[";
-    for (size_t i = 0; i < results.size(); ++i) {
-        const auto& r = results[i];
-        if (i > 0) ss << ",";
-        ss << "{"
-           << "\"id\":\"" << json_escape(r.id) << "\","
-           << "\"category\":\"" << r.category << "\","
-           << "\"severity\":\"" << r.severity << "\","
-           << "\"status\":" << r.status << ","
-           << "\"us\":" << r.us << ","
-           << "\"certainty\":" << (r.certainty == CERT_UNSET ? CERT_WEAK : r.certainty) << ","
-           << "\"details\":\"" << json_escape(r.details) << "\""
-           << "}";
-    }
-    ss << "]";
-    return ss.str();
-}

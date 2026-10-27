@@ -2,8 +2,7 @@ package rasp.sdk
 
 internal inline fun timedSignal(
     id: String,
-    category: String,
-    severity: String,
+    group: Group,
     certainty: Certainty,
     block: () -> Pair<Status, String>,
 ): Signal {
@@ -11,5 +10,5 @@ internal inline fun timedSignal(
     val (st, det) = try { block() } catch (t: Throwable) {
         Status.INCONCLUSIVE to "probe error: ${t.message}"
     }
-    return Signal(id, category, severity, st, det, (System.nanoTime() - t0) / 1000, certainty)
+    return Signal(id, group, certainty, st, det, (System.nanoTime() - t0) / 1000)
 }

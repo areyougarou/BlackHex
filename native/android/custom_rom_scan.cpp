@@ -20,17 +20,13 @@ bool has(const std::string& hay_lc, const char* needle_lc) {
     return hay_lc.find(needle_lc) != std::string::npos;
 }
 
-void base(NativeResult& r, const char* id, const char* sev) {
-    r.id = id; r.category = CAT_CUSTOM_ROM; r.severity = sev;
-}
-
 const char* kPolicyNote =
     " [custom-ROM/unlock is a policy WEIGHT, not malicious - GrapheneOS is more secure than stock]";
 
 }
 
 NativeResult check_crom_boot() {
-    NativeResult r; base(r, "CROM_BOOT", SEV_MEDIUM);
+    NativeResult r;
     std::string vbs = lower(prop("ro.boot.verifiedbootstate"));
     std::string flk = prop("ro.boot.flash.locked");
     std::string dev = lower(prop("ro.boot.vbmeta.device_state"));
@@ -55,7 +51,7 @@ NativeResult check_crom_boot() {
 }
 
 NativeResult check_crom_sign() {
-    NativeResult r; base(r, "CROM_SIGN", SEV_MEDIUM);
+    NativeResult r;
     std::string tags = lower(prop("ro.build.tags"));
     std::string type = lower(prop("ro.build.type"));
     std::string flavor = lower(prop("ro.build.flavor"));
@@ -77,7 +73,7 @@ NativeResult check_crom_sign() {
 }
 
 NativeResult check_crom_rom_props() {
-    NativeResult r; base(r, "CROM_ROM_PROPS", SEV_MEDIUM);
+    NativeResult r;
     struct M { const char* key; const char* rom; };
     static const M kMarkers[] = {
         {"ro.lineage.version","LineageOS"}, {"ro.lineage.build.version","LineageOS"},

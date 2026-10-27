@@ -7,13 +7,10 @@
 
 namespace {
 std::string lower(std::string s) { for (char& c : s) c = (char)tolower((unsigned char)c); return s; }
-void base(NativeResult& r, const char* id, const char* sev) {
-    r.id = id; r.category = CAT_EMULATOR; r.severity = sev;
-}
 }
 
-NativeResult check_emu_vulkan() {
-    NativeResult r; base(r, "EMU_VULKAN", SEV_MEDIUM);
+static NativeResult vulkan_probe() {
+    NativeResult r;
 
     VkApplicationInfo app{};
     app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -64,8 +61,8 @@ NativeResult check_emu_vulkan() {
     return r;
 }
 
-NativeResult check_emu_sensors() {
-    NativeResult r; base(r, "EMU_SENSORS", SEV_MEDIUM);
+static NativeResult sensors_probe() {
+    NativeResult r;
 
     ASensorManager* m = nullptr;
     const char* pkg = g_own_process_name.empty() ? "rasp.sdk" : g_own_process_name.c_str();
@@ -93,4 +90,14 @@ NativeResult check_emu_sensors() {
     else if (n <= 0) { r.status = STATUS_INCONCLUSIVE; r.details = "no sensors to read vendors from - cannot judge: " + raw; }
     else { r.status = STATUS_CLEAN; r.details = "no emulator sensor vendor: " + raw; }
     return r;
+}
+
+NativeResult check_emu_vulkan() {
+    static const NativeResult once = vulkan_probe();
+    return once;
+}
+
+NativeResult check_emu_sensors() {
+    static const NativeResult once = sensors_probe();
+    return once;
 }

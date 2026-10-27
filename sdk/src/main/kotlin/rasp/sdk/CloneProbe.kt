@@ -6,30 +6,14 @@ import java.io.File
 
 internal object CloneProbe {
 
-    private val ENGINE_TOKENS = listOf(
-        "com.lody.virtual", "io.busniess.va", "com.by.chaos", "com.bly.dkplat", "com.qihoo.magic",
-        "com.lbe.parallel", "com.parallel.space", "com.ludashi.dualspace", "com.excelliance.dualaid",
-        "com.excelliance.multiaccount", "com.cloneapp", "multi.parallel.dualspace", "com.applisto.appclone",
-        "com.vmos", "blackbox", "top.niunaijun", "com.catchingnow.icebox"
+    private var dexCrcCache: Long? = null
+
+    fun collect(ctx: Context): List<Signal> = listOf(
+        timedSignal("CLV_CGROUP_UID_MISMATCH", Group.APP_INTEGRITY, Certainty.WEAK) { cgroupUid() },
+        timedSignal("CLV_DEX_CRC", Group.APP_INTEGRITY, Certainty.WEAK) { dexCrc(ctx) },
+        timedSignal("CLV_PKGNAME_MISMATCH", Group.APP_INTEGRITY, Certainty.PROOF) { pkgName(ctx) },
+        timedSignal("CLV_AM_SINGLETON_PROXY", Group.APP_INTEGRITY, Certainty.WEAK) { amSingletonProxy() },
     )
-
-    fun collect(ctx: Context): List<Signal> {
-        val maps = try { File("/proc/self/maps").readText() } catch (_: Throwable) { "" }
-        return listOf(
-            timedSignal("CLV_MAPS_ENGINE_STRING", "CLONE", "MEDIUM", Certainty.WEAK) { mapsEngineString(maps) },
-            timedSignal("CLV_CGROUP_UID_MISMATCH", "CLONE", "MEDIUM", Certainty.WEAK) { cgroupUid() },
-            timedSignal("CLV_SIGCERT_MISMATCH", "CLONE", "MEDIUM", Certainty.PROOF) { TamperProbe.signer(ctx) },
-            timedSignal("CLV_DEX_CRC", "CLONE", "MEDIUM", Certainty.WEAK) { dexCrc(ctx) },
-            timedSignal("CLV_PKGNAME_MISMATCH", "CLONE", "MEDIUM", Certainty.PROOF) { pkgName(ctx) },
-            timedSignal("CLV_AM_SINGLETON_PROXY", "CLONE", "MEDIUM", Certainty.WEAK) { amSingletonProxy() },
-        )
-    }
-
-    private fun mapsEngineString(maps: String): Pair<Status, String> {
-        if (maps.isBlank()) return Status.INCONCLUSIVE to "maps empty/blocked"
-        val hit = ENGINE_TOKENS.firstOrNull { maps.contains(it) }
-        return (if (hit != null) Status.DETECTED else Status.CLEAN) to (hit?.let { "engine=$it" } ?: "no engine token")
-    }
 
     private fun cgroupUid(): Pair<Status, String> {
         val cg = File("/proc/self/cgroup").readText()
@@ -43,8 +27,8 @@ internal object CloneProbe {
     }
 
     private fun dexCrc(ctx: Context): Pair<Status, String> {
-        val zf = java.util.zip.ZipFile(ctx.applicationInfo.sourceDir)
-        val crc = try { zf.getEntry("classes.dex")?.crc ?: -1L } finally { zf.close() }
+        val crc = dexCrcCache ?: java.util.zip.ZipFile(ctx.applicationInfo.sourceDir).use { it.getEntry("classes.dex")?.crc ?: -1L }
+            .also { dexCrcCache = it }
         val baseline = Baselines.dexCrc
             ?: return Status.INCONCLUSIVE to "dex-crc baseline unset - pin this: ${java.lang.Long.toHexString(crc)}"
         return (if (crc != baseline) Status.DETECTED else Status.CLEAN) to

@@ -23,14 +23,10 @@ bool has(const std::string& hay_lc, const char* needle_lc) {
 
 bool exists(const char* p) { struct stat st{}; return stat(p, &st) == 0; }
 
-void base(NativeResult& r, const char* id, const char* sev) {
-    r.id = id; r.category = CAT_EMULATOR; r.severity = sev;
-}
-
 }
 
 NativeResult check_emu_cpu_isa() {
-    NativeResult r; base(r, "EMU_CPU_ISA", SEV_HIGH);
+    NativeResult r;
     std::string ci = read_proc_file("/proc/cpuinfo");
     if (ci.empty()) { r.status = STATUS_INCONCLUSIVE; r.details = "cpuinfo unreadable - cannot judge"; return r; }
     std::string lc = lower(ci);
@@ -46,7 +42,7 @@ NativeResult check_emu_cpu_isa() {
 }
 
 NativeResult check_emu_translator() {
-    NativeResult r; base(r, "EMU_TRANSLATOR", SEV_HIGH);
+    NativeResult r;
     static const char* kLibs[] = {"libhoudini", "libndk_translation", "libnb.so",
                                    "libdvm_houdini", "/houdini", "libnativebridge_vdex", nullptr};
     std::string hit;
@@ -60,37 +56,39 @@ NativeResult check_emu_translator() {
     return r;
 }
 
-NativeResult check_emu_props() {
-    NativeResult r; base(r, "EMU_PROPS", SEV_HIGH);
+NativeResult check_emu_props_qemu() {
     std::string qemu = prop("ro.boot.qemu") + prop("ro.kernel.qemu");
     std::string hw = lower(prop("ro.hardware"));
-    std::string abi = lower(prop("ro.product.cpu.abi"));
     std::string egl = lower(prop("ro.hardware.egl")), gralloc = lower(prop("ro.hardware.gralloc"));
+    std::string hit;
+    if (qemu.find('1') != std::string::npos) hit += "qemu=1 ";
+    if (hw == "goldfish" || hw == "ranchu" || hw == "vbox86") hit += "hardware=" + hw + " ";
+    if (egl.find("emulation") != std::string::npos || egl.find("ranchu") != std::string::npos ||
+        gralloc.find("ranchu") != std::string::npos || gralloc.find("emulation") != std::string::npos)
+        hit += "egl/gralloc=emulated ";
+    std::string raw = "qemu=[" + qemu + "] hw=" + hw + " egl=" + egl + " gralloc=" + gralloc;
+    if (!hit.empty()) return {STATUS_DETECTED, "emulator props: " + hit + "\n" + raw};
+    return {STATUS_CLEAN, "no qemu/goldfish/ranchu/vbox86/emulated-EGL props\n" + raw};
+}
+
+NativeResult check_emu_props_hints() {
+    std::string hw = lower(prop("ro.hardware"));
+    std::string abi = lower(prop("ro.product.cpu.abi"));
     std::string bridge = prop("ro.dalvik.vm.native.bridge");
     std::string hit;
-    bool strong = false;
-    if (qemu.find('1') != std::string::npos) { hit += "qemu=1 "; strong = true; }
-    if (hw == "goldfish" || hw == "ranchu" || hw == "vbox86") strong = true;
-    for (const char* h : {"goldfish","ranchu","vbox86","nox","ttvm","android_x86","cancro"})
-        if (hw == h || hw.find(h) != std::string::npos) { hit += std::string("hardware=") + hw + " "; break; }
+    if (hw != "goldfish" && hw != "ranchu" && hw != "vbox86")
+        for (const char* h : {"goldfish","ranchu","vbox86","nox","ttvm","android_x86","cancro"})
+            if (hw.find(h) != std::string::npos) { hit += "hardware=" + hw + " "; break; }
     if (abi.find("x86") != std::string::npos) hit += "abi=" + abi + " ";
     if (!bridge.empty() && bridge != "0" && lower(bridge).find("false") == std::string::npos)
         hit += "native_bridge=" + bridge + " ";
-    if (egl.find("emulation") != std::string::npos || egl.find("ranchu") != std::string::npos ||
-        gralloc.find("ranchu") != std::string::npos || gralloc.find("emulation") != std::string::npos) {
-        hit += "egl/gralloc=emulated "; strong = true;
-    }
-    std::string raw = "qemu=[" + qemu + "] hw=" + hw + " abi=" + abi + " bridge=" + bridge;
-    if (!hit.empty()) {
-        r.status = STATUS_DETECTED; r.details = "emulator props: " + hit + "\n" + raw;
-        r.certainty = strong ? CERT_STRONG : CERT_WEAK;
-    }
-    else { r.status = STATUS_CLEAN; r.details = "no qemu/emulator/x86/native-bridge props\n" + raw; }
-    return r;
+    std::string raw = "hw=" + hw + " abi=" + abi + " bridge=" + bridge;
+    if (!hit.empty()) return {STATUS_DETECTED, "emulator-like props: " + hit + "\n" + raw};
+    return {STATUS_CLEAN, "no emulator-like hardware name, x86 ABI or native bridge\n" + raw};
 }
 
 NativeResult check_emu_devnodes() {
-    NativeResult r; base(r, "EMU_DEVNODES", SEV_MEDIUM);
+    NativeResult r;
     static const char* kNodes[] = {"/dev/qemu_pipe","/dev/goldfish_pipe","/dev/goldfish_sync",
         "/dev/socket/qemud","/dev/socket/baseband_genyd","/dev/socket/genyd",
         "/dev/vboxguest","/dev/vboxuser", nullptr};
@@ -104,7 +102,7 @@ NativeResult check_emu_devnodes() {
 }
 
 NativeResult check_emu_mounts() {
-    NativeResult r; base(r, "EMU_MOUNTS", SEV_MEDIUM);
+    NativeResult r;
     std::string mi = lower(read_proc_file("/proc/self/mountinfo"));
     if (mi.empty()) { r.status = STATUS_INCONCLUSIVE; r.details = "mountinfo unreadable - cannot judge"; return r; }
     std::string hit;

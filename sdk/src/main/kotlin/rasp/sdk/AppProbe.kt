@@ -1,26 +1,26 @@
 package rasp.sdk
 
-import android.content.Context
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.GLES20
 
 internal object AppProbe {
 
-    @Suppress("UNUSED_PARAMETER")
-    fun collect(ctx: Context): List<Signal> = listOf(
-        timed("EMU_GL", "HIGH", Certainty.WEAK) { glRenderer() },
+    private var glWorker: Thread? = null
+    @Volatile private var glResult: Pair<Status, String>? = null
+
+    fun collect(): List<Signal> = listOf(
+        timedSignal("EMU_GL", Group.EMULATOR, Certainty.WEAK) { gl() },
     )
 
-    private fun timed(id: String, sev: String, certainty: Certainty, block: () -> Pair<Status, String>): Signal {
-        val t0 = System.nanoTime()
-        var result: Pair<Status, String>? = null
-        val worker = Thread {
-            result = try { block() } catch (t: Throwable) { Status.INCONCLUSIVE to "probe error: ${t.message}" }
-        }.apply { isDaemon = true; start() }
-        worker.join(2000)
-        val (st, det) = result ?: (Status.INCONCLUSIVE to "probe timed out (>2s) - stalled HAL (emulator-like)")
-        return Signal(id, "EMULATOR", sev, st, det, (System.nanoTime() - t0) / 1000, certainty)
+    private fun gl(): Pair<Status, String> {
+        glResult?.let { return it }
+        if (glWorker == null) {
+            glWorker = Thread {
+                glResult = try { glRenderer() } catch (t: Throwable) { Status.INCONCLUSIVE to "probe error: ${t.message}" }
+            }.apply { isDaemon = true; start(); join(2000) }
+        }
+        return glResult ?: (Status.INCONCLUSIVE to "GL probe still running (>2s) - stalled HAL (emulator-like)")
     }
 
     private fun glRenderer(): Pair<Status, String> {

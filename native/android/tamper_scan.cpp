@@ -118,38 +118,37 @@ bool first_cert(const std::string& val, size_t& cert_off, size_t& cert_len){
 
 }
 
-NativeResult check_tamper_signing_block(){
-    NativeResult r; r.id="TAMPER_SIGNING_BLOCK";
+struct Signer { std::string hash; const char* scheme = ""; std::string err; };
 
-    r.category=CAT_INTEGRITY; r.severity=SEV_HIGH;
-
+static Signer parse_own_signer(){
+    Signer s;
     std::string apk=own_apk_path();
-    if(apk.empty()){ r.status=STATUS_INCONCLUSIVE; r.details="own base.apk not found in maps - cannot judge"; return r; }
+    if(apk.empty()){ s.err="own base.apk not found in maps - cannot judge"; return s; }
 
     int fd=raw_open(apk.c_str());
-    if(fd<0){ r.status=STATUS_INCONCLUSIVE; r.details="open(base.apk) failed - cannot judge"; return r; }
+    if(fd<0){ s.err="open(base.apk) failed - cannot judge"; return s; }
     int64_t fsz=raw_size(fd);
-    if(fsz<22){ raw_close(fd); r.status=STATUS_INCONCLUSIVE; r.details="apk too small - cannot judge"; return r; }
+    if(fsz<22){ raw_close(fd); s.err="apk too small - cannot judge"; return s; }
 
     size_t tail = (size_t)(fsz < 65557 ? fsz : 65557);
     std::string buf; buf.resize(tail);
-    if(!raw_pread(fd, &buf[0], tail, fsz-(int64_t)tail)){ raw_close(fd); r.status=STATUS_INCONCLUSIVE; r.details="tail read failed"; return r; }
+    if(!raw_pread(fd, &buf[0], tail, fsz-(int64_t)tail)){ raw_close(fd); s.err="tail read failed"; return s; }
     long eocd=-1;
     for(long i=(long)tail-22;i>=0;i--)
         if((uint8_t)buf[i]==0x50&&(uint8_t)buf[i+1]==0x4b&&(uint8_t)buf[i+2]==0x05&&(uint8_t)buf[i+3]==0x06){ eocd=i; break; }
-    if(eocd<0){ raw_close(fd); r.status=STATUS_INCONCLUSIVE; r.details="no EOCD - not judging"; return r; }
-    uint32_t cd_off; if(!rd_u32(buf,(size_t)eocd+16,cd_off)||cd_off+16>(uint32_t)fsz){ raw_close(fd); r.status=STATUS_INCONCLUSIVE; r.details="bad central-dir offset"; return r; }
+    if(eocd<0){ raw_close(fd); s.err="no EOCD - not judging"; return s; }
+    uint32_t cd_off; if(!rd_u32(buf,(size_t)eocd+16,cd_off)||cd_off+16>(uint32_t)fsz){ raw_close(fd); s.err="bad central-dir offset"; return s; }
 
     uint8_t foot[24];
-    if(!raw_pread(fd, foot, 24, (int64_t)cd_off-24)){ raw_close(fd); r.status=STATUS_INCONCLUSIVE; r.details="footer read failed"; return r; }
-    if(memcmp(foot+8,"APK Sig Block 42",16)!=0){ raw_close(fd); r.status=STATUS_INCONCLUSIVE; r.details="no APK Signing Block (v1-only?) - not judging"; return r; }
+    if(!raw_pread(fd, foot, 24, (int64_t)cd_off-24)){ raw_close(fd); s.err="footer read failed"; return s; }
+    if(memcmp(foot+8,"APK Sig Block 42",16)!=0){ raw_close(fd); s.err="no APK Signing Block (v1-only?) - not judging"; return s; }
     uint64_t blk=0; for(int i=0;i<8;i++) blk|=((uint64_t)foot[i])<<(8*i);
-    if(blk<24 || blk>(uint64_t)fsz || blk>4*1024*1024 || (uint64_t)cd_off<blk+8){ raw_close(fd); r.status=STATUS_INCONCLUSIVE; r.details="implausible signing-block size"; return r; }
+    if(blk<24 || blk>(uint64_t)fsz || blk>4*1024*1024 || (uint64_t)cd_off<blk+8){ raw_close(fd); s.err="implausible signing-block size"; return s; }
 
     int64_t pairs_off=(int64_t)cd_off-(int64_t)blk;
     size_t pairs_len=(size_t)((int64_t)cd_off-24-pairs_off);
     std::string pairs; pairs.resize(pairs_len);
-    if(!raw_pread(fd, &pairs[0], pairs_len, pairs_off)){ raw_close(fd); r.status=STATUS_INCONCLUSIVE; r.details="pairs read failed"; return r; }
+    if(!raw_pread(fd, &pairs[0], pairs_len, pairs_off)){ raw_close(fd); s.err="pairs read failed"; return s; }
     raw_close(fd);
 
     size_t pos=0; std::string cert_hash; const char* scheme="";
@@ -168,7 +167,17 @@ NativeResult check_tamper_signing_block(){
         }
         pos+=8+(size_t)plen;
     }
-    if(cert_hash.empty()){ r.status=STATUS_INCONCLUSIVE; r.details="no parseable v2/v3 signer cert - not judging"; return r; }
+    if(cert_hash.empty()){ s.err="no parseable v2/v3 signer cert - not judging"; return s; }
+    s.hash=cert_hash; s.scheme=scheme;
+    return s;
+}
+
+NativeResult check_tamper_signing_block(){
+    static Signer cached;
+    if(cached.hash.empty()) cached=parse_own_signer();
+    if(cached.hash.empty()) return {STATUS_INCONCLUSIVE, cached.err};
+    NativeResult r;
+    const std::string& cert_hash=cached.hash; const char* scheme=cached.scheme;
 
     std::vector<std::string> pins; std::string cur;
     for(size_t i=0;i<=g_signer_baseline.size();i++){

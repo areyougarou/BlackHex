@@ -39,11 +39,6 @@ bool scan_region(uint64_t start, uint64_t end, uint64_t& hit) {
 
 NativeResult check_uprobe_residue() {
     NativeResult r;
-    r.id = "UPROBE_RESIDUE";
-
-    r.category = CAT_HOOKS;
-    r.severity = SEV_HIGH;
-
     int hits = 0;
     std::string detail;
 

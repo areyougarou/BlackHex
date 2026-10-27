@@ -53,11 +53,6 @@ bool region_is_dynamic_elf(const VmaEntry& v) {
 
 NativeResult check_elf_in_anon() {
     NativeResult r;
-    r.id = "ELF_IN_ANON";
-
-    r.category = CAT_MAPS;
-    r.severity = SEV_HIGH;
-
     uint32_t probe;
     if (!safe_read_mem((uintptr_t)&check_elf_in_anon, &probe, sizeof(probe))) {
         r.status = STATUS_INCONCLUSIVE;

@@ -126,11 +126,6 @@ int phdr_cb(struct dl_phdr_info* info, size_t, void* data) {
 
 NativeResult check_got_plt_integrity() {
     NativeResult r;
-    r.id = "GOT_PLT_INTEGRITY";
-
-    r.category = CAT_HOOKS;
-    r.severity = SEV_CRITICAL;
-
     find_vdso();
     Ctx c; c.checked = 0; c.hits = 0; c.modules = 0;
     uint32_t probe;

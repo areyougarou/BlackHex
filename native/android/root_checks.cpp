@@ -12,17 +12,6 @@
 
 namespace {
 
-NativeResult mk(const std::string& id, const std::string& name, int status,
-                const std::string& details, const std::string& raw = "") {
-    NativeResult r;
-    r.id = id;  r.category = CAT_SUBSTRATE;
-    r.severity = SEV_MEDIUM;
-    r.status = status; r.details = details;
-
-     r.us = 0;
-    return r;
-}
-
 struct FileRead { bool ok; int err; std::string data; };
 FileRead read_file_raw(const char* path) {
     FileRead r{false, 0, {}};
@@ -109,38 +98,32 @@ std::string lower_ascii(std::string s) {
 NativeResult check_root_su_path() {
     static const char* su_paths[] = {
         "/system/bin/su","/system/xbin/su","/sbin/su","/su/bin/su","/system/sbin/su",
-        "/vendor/bin/su","/odm/bin/su","/system/xbin/busybox", nullptr };
-    bool present = false, blocked = false, su = false; std::string hit;
+        "/vendor/bin/su","/odm/bin/su", nullptr };
+    bool present = false, blocked = false; std::string hit;
     for (int i = 0; su_paths[i]; i++) {
         errno = 0; long rr = syscall(__NR_faccessat, AT_FDCWD, su_paths[i], F_OK); int re = errno;
-        if (rr == 0) {
-            present = true; hit += std::string(su_paths[i]) + " ";
-            if (strstr(su_paths[i], "busybox") == nullptr) su = true;
-        }
+        if (rr == 0) { present = true; hit += std::string(su_paths[i]) + " "; }
         else if (re != ENOENT) blocked = true;
     }
     int status; std::string d;
     if (present)      { status = STATUS_DETECTED;     d = "su present: " + hit; }
     else if (blocked) { status = STATUS_INCONCLUSIVE; d = "su paths blocked (EACCES) - not a clean read"; }
     else              { status = STATUS_CLEAN;        d = "no su path (all ENOENT)"; }
-    NativeResult r = mk("ROOT_SU_PATH", "su binary path", status, d);
-    if (present) r.certainty = su ? CERT_STRONG : CERT_WEAK;
-    return r;
+    return {status, d};
 }
 
 NativeResult check_root_selinux_domain() {
     FileRead r = read_file_raw("/proc/self/attr/current");
-    if (!r.ok) return mk("ROOT_SELINUX_DOMAIN", "selinux domain", STATUS_INCONCLUSIVE, errname(r.err));
+    if (!r.ok) return {STATUS_INCONCLUSIVE, errname(r.err)};
     std::string v = trimnl(r.data);
-    if (v.empty()) return mk("ROOT_SELINUX_DOMAIN", "selinux domain", STATUS_INCONCLUSIVE, "empty");
+    if (v.empty()) return {STATUS_INCONCLUSIVE, "empty"};
     bool bad = v.find("untrusted_app") == std::string::npos;
-    return mk("ROOT_SELINUX_DOMAIN", "selinux domain", bad ? STATUS_DETECTED : STATUS_CLEAN, v);
+    return {bad ? STATUS_DETECTED : STATUS_CLEAN, v};
 }
 
 NativeResult check_root_proc_status() {
     FileRead st = read_file_raw("/proc/self/status");
-    if (!st.ok) return mk("ROOT_PROC_STATUS", "self-status seccomp (non-zygote start)",
-                          STATUS_INCONCLUSIVE, errname(st.err));
+    if (!st.ok) return {STATUS_INCONCLUSIVE, errname(st.err)};
     auto field = [&](const char* key) -> std::string {
         size_t p = st.data.find(key); if (p == std::string::npos) return "";
         size_t e = st.data.find('\n', p); return trimnl(st.data.substr(p, e - p)); };
@@ -155,12 +138,12 @@ NativeResult check_root_proc_status() {
     else                status = STATUS_INCONCLUSIVE;
     std::string d = "ppid=" + std::to_string((int)getppid()) + " " + sec + " " + tp +
                     " (seccompMode=" + std::to_string(mode) + ")";
-    return mk("ROOT_PROC_STATUS", "self-status seccomp (non-zygote start)", status, d);
+    return {status, d};
 }
 
 NativeResult check_root_mount_tokens() {
     FileRead r = read_file_raw("/proc/self/mountinfo");
-    if (!r.ok) return mk("ROOT_MOUNT_TOKENS", "mount residue", STATUS_INCONCLUSIVE, errname(r.err));
+    if (!r.ok) return {STATUS_INCONCLUSIVE, errname(r.err)};
     struct Mount { std::string dev, root, point, type, source, super; };
     std::vector<Mount> mounts; std::string data_dev; size_t pos = 0;
     while (pos < r.data.size()) {
@@ -175,7 +158,7 @@ NativeResult check_root_mount_tokens() {
         if (m.point == "/data") data_dev = m.dev;
         mounts.push_back(m);
     }
-    if (mounts.empty()) return mk("ROOT_MOUNT_TOKENS", "mount residue", STATUS_INCONCLUSIVE, "no parseable mountinfo line");
+    if (mounts.empty()) return {STATUS_INCONCLUSIVE, "no parseable mountinfo line"};
     int overlay = 0, stock = 0, tmpfs_sys = 0, data_bind = 0, token = 0; std::string hit;
     for (const Mount& m : mounts) {
         bool sys = system_path(m.point);
@@ -195,22 +178,22 @@ NativeResult check_root_mount_tokens() {
         if (bad && hit.size() < 400) hit += " " + m.point + "(" + m.type + "," + m.source + ")";
     }
     bool bad = overlay || tmpfs_sys || data_bind || token;
-    return mk("ROOT_MOUNT_TOKENS", "mount residue", bad ? STATUS_DETECTED : STATUS_CLEAN,
-              "lines=" + std::to_string(mounts.size()) + " overlay_sys=" + std::to_string(overlay) +
+    return {bad ? STATUS_DETECTED : STATUS_CLEAN,
+            "lines=" + std::to_string(mounts.size()) + " overlay_sys=" + std::to_string(overlay) +
               " stock_overlay=" + std::to_string(stock) + " tmpfs_sys=" + std::to_string(tmpfs_sys) +
-              " data_bind=" + std::to_string(data_bind) + " tokens=" + std::to_string(token) + hit);
+              " data_bind=" + std::to_string(data_bind) + " tokens=" + std::to_string(token) + hit};
 }
 
 NativeResult check_root_kernel_string() {
     struct utsname u;
-    if (uname(&u) != 0) return mk("ROOT_KERNEL_STRING", "kernel string", STATUS_INCONCLUSIVE, errname(errno));
+    if (uname(&u) != 0) return {STATUS_INCONCLUSIVE, errname(errno)};
     std::string rel = u.release, ver = u.version;
     auto tok = [](const std::string& s) {
         return s.find("KSU") != std::string::npos || s.find("ksu") != std::string::npos ||
                s.find("kernelsu") != std::string::npos || s.find("apatch") != std::string::npos ||
                s.find("Magisk") != std::string::npos || s.find("magisk") != std::string::npos; };
     bool bad = tok(rel) || tok(ver);
-    return mk("ROOT_KERNEL_STRING", "kernel string", bad ? STATUS_DETECTED : STATUS_CLEAN, "release=" + rel);
+    return {bad ? STATUS_DETECTED : STATUS_CLEAN, "release=" + rel};
 }
 
 NativeResult check_root_magisk_daemon() {
@@ -224,6 +207,6 @@ NativeResult check_root_magisk_daemon() {
         errno = 0; int rc = connect(s, (struct sockaddr*)&a, len); close(s);
         if (rc == 0) { present = true; hit += std::string(names[i]) + " "; }
     }
-    return mk("ROOT_MAGISK_DAEMON", "magisk daemon socket", present ? STATUS_DETECTED : STATUS_CLEAN,
-              present ? ("connected: " + hit) : "no connect (absent)");
+    return {present ? STATUS_DETECTED : STATUS_CLEAN,
+            present ? ("connected: " + hit) : "no connect (absent)"};
 }
