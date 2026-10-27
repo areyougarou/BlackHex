@@ -44,6 +44,7 @@ NativeResult check_emu_cpu_isa() {
 
 NativeResult check_emu_translator() {
     NativeResult r;
+    if (!maps_available()) return {STATUS_INCONCLUSIVE, "process memory map unavailable (empty /proc/self/maps snapshot); cannot judge"};
     static const char* kLibs[] = {"libhoudini", "libndk_translation", "libnb.so",
                                    "libdvm_houdini", "/houdini", "libnativebridge_vdex", nullptr};
     std::string hit;

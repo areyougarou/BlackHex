@@ -24,6 +24,7 @@ bool page_mapped(uintptr_t addr) {
 
 NativeResult check_lib_from_root_path() {
     NativeResult r;
+    if (!maps_available()) return {STATUS_INCONCLUSIVE, "process memory map unavailable (empty /proc/self/maps snapshot); cannot judge"};
     int hits = 0;
     std::string detail;
     for (const auto& v : g_maps) {

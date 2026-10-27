@@ -37,6 +37,7 @@ struct VmaEntry {
 
 std::vector<VmaEntry> read_maps();
 extern std::vector<VmaEntry> g_maps;
+bool maps_available();
 
 std::string read_proc_file(const char* path);
 

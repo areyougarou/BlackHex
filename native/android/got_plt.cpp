@@ -128,6 +128,7 @@ int phdr_cb(struct dl_phdr_info* info, size_t, void* data) {
 
 NativeResult check_got_plt_integrity() {
     NativeResult r;
+    if (!maps_available()) return {STATUS_INCONCLUSIVE, "process memory map unavailable (empty /proc/self/maps snapshot); cannot judge"};
     find_vdso();
     Ctx c; c.checked = 0; c.hits = 0; c.modules = 0;
     uint32_t probe;

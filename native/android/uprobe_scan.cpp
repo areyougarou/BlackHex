@@ -41,6 +41,7 @@ bool scan_region(uint64_t start, uint64_t end, uint64_t& hit) {
 
 NativeResult check_uprobe_residue() {
     NativeResult r;
+    if (!maps_available()) return {STATUS_INCONCLUSIVE, "process memory map unavailable (empty /proc/self/maps snapshot); cannot judge"};
     int hits = 0;
     std::string detail;
 

@@ -53,6 +53,8 @@ std::vector<VmaEntry> read_maps() {
     return result;
 }
 
+bool maps_available() { return !g_maps.empty(); }
+
 std::string read_proc_file(const char* path) {
     std::ifstream f(path);
     if (!f) return "";
