@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/syscall.h>
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
@@ -64,7 +65,11 @@ struct Sha256 {
 
 std::string sha256_hex(const uint8_t* p,size_t n){ Sha256 s; s.init(); s.update(p,n); return s.hex(); }
 
-int raw_open(const char* path){ return (int)syscall(__NR_openat, AT_FDCWD, path, O_RDONLY, 0); }
+}
+
+int raw_open(const char* path){ return (int)syscall(__NR_openat, AT_FDCWD, path, O_RDONLY | O_CLOEXEC | O_LARGEFILE, 0); }
+namespace {
+
 void raw_close(int fd){ syscall(__NR_close, fd); }
 int64_t raw_size(int fd){ return (int64_t)syscall(__NR_lseek, fd, 0, SEEK_END); }
 
@@ -93,42 +98,51 @@ bool rd_u64(const std::string& b,size_t off,uint64_t& v){
     for(int i=0;i<8;i++) v|=((uint64_t)p[i])<<(8*i); return true;
 }
 
-std::string own_apk_path(){
-    std::string best;
-    for(const auto& v : g_maps){
-        if(v.path.size()<4) continue;
-        if(v.path.rfind(".apk")!=v.path.size()-4) continue;
-        if(!is_own_vma(v.path)) continue;
-        if(v.path.find("base.apk")!=std::string::npos) return v.path;
-        if(best.empty()) best=v.path;
+}
+
+namespace {
+
+bool installer_path(const std::string& p){
+    if(p.compare(0,10,"/data/app/")==0) return true;
+    size_t u=p.find('/',12);
+    return p.compare(0,12,"/mnt/expand/")==0 && u!=std::string::npos && p.compare(u,5,"/app/")==0;
+}
+
+bool fits(size_t off, uint64_t len, size_t end){ return off<=end && len<=end-off; }
+
+void entry_certs(const std::string& val, std::vector<std::string>& out){
+    uint32_t u;
+    if(!rd_u32(val,0,u) || !fits(4,u,val.size())) return;
+    size_t q=4, end=4+(size_t)u;
+    while(fits(q,4,end)){
+        if(!rd_u32(val,q,u) || !fits(q+4,u,end)) return;
+        size_t s=q+4, s_end=s+u; q=s_end;
+        if(!rd_u32(val,s,u) || !fits(s+4,u,s_end)) return;
+        size_t sd=s+4, sd_end=sd+u;
+        if(!rd_u32(val,sd,u) || !fits(sd+4,u,sd_end)) return;
+        size_t c=sd+4+u; uint32_t c0;
+        if(!fits(c,8,sd_end) || !rd_u32(val,c+4,c0) || !fits(c+8,c0,sd_end)) return;
+        out.push_back(sha256_hex((const uint8_t*)val.data()+c+8, c0));
     }
-    return best;
-}
-
-bool first_cert(const std::string& val, size_t& cert_off, size_t& cert_len){
-    size_t q=0; uint32_t u;
-    if(!rd_u32(val,q,u)) return false; q+=4;
-    if(!rd_u32(val,q,u)) return false; q+=4;
-    size_t signer_end = q+u; if(signer_end>val.size()) signer_end=val.size();
-    if(!rd_u32(val,q,u)) return false; q+=4;
-    size_t sd_end = q+u; if(sd_end>val.size()) sd_end=val.size();
-    uint32_t dg; if(!rd_u32(val,q,dg)) return false; q+=4;
-    q+=dg; if(q>sd_end) return false;
-    uint32_t certs; if(!rd_u32(val,q,certs)) return false; q+=4;
-    size_t certs_end=q+certs; if(certs_end>sd_end) certs_end=sd_end;
-    uint32_t c0; if(!rd_u32(val,q,c0)) return false; q+=4;
-    if(q+c0>certs_end) return false;
-    cert_off=q; cert_len=c0; return true;
 }
 
 }
 
-struct Signer { std::string hash; const char* scheme = ""; std::string err; };
+std::string own_apk_path(const std::vector<VmaEntry>& maps, const std::string& pkg){
+    const std::string seg="/"+pkg+"-", base="/base.apk";
+    if(pkg.empty()) return "";
+    for(const auto& v : maps)
+        if(v.path.size()>base.size() && v.path.compare(v.path.size()-base.size(),base.size(),base)==0 &&
+           installer_path(v.path) && v.path.find(seg)!=std::string::npos) return v.path;
+    return "";
+}
+
+struct Signer { std::vector<std::string> certs; std::string err; bool v1_only = false; };
 
 static Signer parse_own_signer(){
     Signer s;
-    std::string apk=own_apk_path();
-    if(apk.empty()){ s.err="own base.apk not found in maps - cannot judge"; return s; }
+    std::string apk=own_apk_path(g_maps, g_own_package);
+    if(apk.empty()){ s.err="installed base.apk not found among the app's mapped files"; return s; }
 
     int fd=raw_open(apk.c_str());
     if(fd<0){ s.err="open(base.apk) failed - cannot judge"; return s; }
@@ -140,49 +154,46 @@ static Signer parse_own_signer(){
     if(!raw_pread(fd, &buf[0], tail, fsz-(int64_t)tail)){ raw_close(fd); s.err="tail read failed"; return s; }
     long eocd=-1;
     for(long i=(long)tail-22;i>=0;i--)
-        if((uint8_t)buf[i]==0x50&&(uint8_t)buf[i+1]==0x4b&&(uint8_t)buf[i+2]==0x05&&(uint8_t)buf[i+3]==0x06){ eocd=i; break; }
-    if(eocd<0){ raw_close(fd); s.err="no EOCD - not judging"; return s; }
-    uint32_t cd_off; if(!rd_u32(buf,(size_t)eocd+16,cd_off)||cd_off+16>(uint32_t)fsz){ raw_close(fd); s.err="bad central-dir offset"; return s; }
+        if((uint8_t)buf[i]==0x50&&(uint8_t)buf[i+1]==0x4b&&(uint8_t)buf[i+2]==0x05&&(uint8_t)buf[i+3]==0x06 &&
+           (size_t)i+22+((uint8_t)buf[i+20]|((size_t)(uint8_t)buf[i+21]<<8))==tail){ eocd=i; break; }
+    if(eocd<0){ raw_close(fd); s.err="no ZIP end record - not judging"; return s; }
+    uint32_t cd_off, cd_size; rd_u32(buf,(size_t)eocd+16,cd_off); rd_u32(buf,(size_t)eocd+12,cd_size);
+    if((uint64_t)cd_off+cd_size!=(uint64_t)(fsz-(int64_t)tail+eocd) || cd_off<32){ raw_close(fd); s.err="unexpected ZIP layout - not judging"; return s; }
 
     uint8_t foot[24];
     if(!raw_pread(fd, foot, 24, (int64_t)cd_off-24)){ raw_close(fd); s.err="footer read failed"; return s; }
-    if(memcmp(foot+8,"APK Sig Block 42",16)!=0){ raw_close(fd); s.err="no APK Signing Block (v1-only?) - not judging"; return s; }
-    uint64_t blk=0; for(int i=0;i<8;i++) blk|=((uint64_t)foot[i])<<(8*i);
-    if(blk<24 || blk>(uint64_t)fsz || blk>4*1024*1024 || (uint64_t)cd_off<blk+8){ raw_close(fd); s.err="implausible signing-block size"; return s; }
+    if(memcmp(foot+8,"APK Sig Block 42",16)!=0){ raw_close(fd); s.v1_only=true; return s; }
+    uint64_t blk=0, head=0; for(int i=0;i<8;i++) blk|=((uint64_t)foot[i])<<(8*i);
+    if(blk<24 || blk>16*1024*1024 || (uint64_t)cd_off<blk+8){ raw_close(fd); s.err="implausible signing-block size"; return s; }
+    if(!raw_pread(fd, &head, 8, (int64_t)cd_off-(int64_t)blk-8) || head!=blk){ raw_close(fd); s.err="signing block sizes do not match"; return s; }
 
     int64_t pairs_off=(int64_t)cd_off-(int64_t)blk;
-    size_t pairs_len=(size_t)((int64_t)cd_off-24-pairs_off);
+    size_t pairs_len=(size_t)(blk-24);
     std::string pairs; pairs.resize(pairs_len);
     if(!raw_pread(fd, &pairs[0], pairs_len, pairs_off)){ raw_close(fd); s.err="pairs read failed"; return s; }
     raw_close(fd);
 
-    size_t pos=0; std::string cert_hash; const char* scheme="";
+    size_t pos=0;
     while(pos+12<=pairs.size()){
         uint64_t plen; if(!rd_u64(pairs,pos,plen)) break;
-        if(plen<4 || pos+8+plen>pairs.size()) break;
+        if(plen<4 || !fits(pos+8,plen,pairs.size())) break;
         uint32_t id; if(!rd_u32(pairs,pos+8,id)){ break; }
-        if(id==0xf05368c0u || id==0x7109871au){
-            std::string val=pairs.substr(pos+12,(size_t)plen-4);
-            size_t co,cl;
-            if(first_cert(val,co,cl)){
-                std::string h=sha256_hex((const uint8_t*)val.data()+co, cl);
-
-                if(cert_hash.empty() || id==0xf05368c0u){ cert_hash=h; scheme=(id==0xf05368c0u)?"v3":"v2"; }
-            }
-        }
+        if(id==0x7109871au || id==0xf05368c0u || id==0x1b93ad61u) entry_certs(pairs.substr(pos+12,(size_t)plen-4), s.certs);
         pos+=8+(size_t)plen;
     }
-    if(cert_hash.empty()){ s.err="no parseable v2/v3 signer cert - not judging"; return s; }
-    s.hash=cert_hash; s.scheme=scheme;
+    if(s.certs.empty()) s.err="no parseable v2/v3 signer cert - not judging";
     return s;
 }
 
 NativeResult check_tamper_signing_block(){
     static Signer cached;
-    if(cached.hash.empty()) cached=parse_own_signer();
-    if(cached.hash.empty()) return {STATUS_INCONCLUSIVE, cached.err};
+    if(cached.certs.empty()) cached=parse_own_signer();
+    if(cached.v1_only)
+        return g_target_sdk>=30
+            ? NativeResult{STATUS_DETECTED, "no v2/v3 signing block: the APK is signed with v1 only, which Android refuses for targetSdkVersion "+std::to_string(g_target_sdk)}
+            : NativeResult{STATUS_INCONCLUSIVE, "signed with v1 only, which Android accepts below targetSdkVersion 30; this check reads only v2/v3 signers"};
+    if(cached.certs.empty()) return {STATUS_INCONCLUSIVE, cached.err};
     NativeResult r;
-    const std::string& cert_hash=cached.hash; const char* scheme=cached.scheme;
 
     std::vector<std::string> expected; std::string cur;
     for(size_t i=0;i<=g_expected_signers.size();i++){
@@ -190,12 +201,15 @@ NativeResult check_tamper_signing_block(){
         if(c==','){ if(!cur.empty()) expected.push_back(cur); cur.clear(); }
         else if(c!=':' && c!=' ') cur += (char)tolower((unsigned char)c);
     }
-    if(expected.empty()){ r.status=STATUS_INCONCLUSIVE; r.details="no signer from Android to compare: "+cert_hash+" ("+scheme+")"; return r; }
-    std::string listed;
-    for(const auto& p : expected){
-        if(p==cert_hash){ r.status=STATUS_CLEAN; r.details="file signer matches the signer Android reports ("+std::string(scheme)+"): "+cert_hash.substr(0,16)+"..."; return r; }
-        listed += p.substr(0,16)+"... ";
+    if(expected.empty()){ r.status=STATUS_INCONCLUSIVE; r.details="no signer from Android to compare"; return r; }
+    std::string listed, file;
+    for(const auto& c : cached.certs){
+        if(std::find(expected.begin(), expected.end(), c)!=expected.end()){
+            r.status=STATUS_CLEAN; r.details="a signing entry in the file carries the signer Android reports: "+c.substr(0,16)+"..."; return r;
+        }
+        file += c.substr(0,16)+"... ";
     }
-    r.status=STATUS_DETECTED; r.details="file signer MISMATCH ("+std::string(scheme)+"): file="+cert_hash.substr(0,16)+"... android="+listed;
+    for(const auto& p : expected) listed += p.substr(0,16)+"... ";
+    r.status=STATUS_DETECTED; r.details="no signing entry in the file carries the signer Android reports: file="+file+"android="+listed;
     return r;
 }

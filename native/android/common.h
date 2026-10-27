@@ -54,6 +54,8 @@ void  init_own_process_name();
 bool  is_own_vma(const std::string& path);
 
 extern std::string g_expected_signers;
+extern std::string g_own_package;
+extern int g_target_sdk;
 
 #define FRIDA_TRAMPOLINE_INSN 0x58000050u
 

@@ -4,12 +4,12 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import java.util.zip.ZipFile
 
 internal object TamperProbe {
 
@@ -17,10 +17,11 @@ internal object TamperProbe {
 
     private var signerCerts: Signers? = null
     private var contentWorker: Thread? = null
-    private var contentWaited = false
     @Volatile private var contentResults: List<Pair<String, ApkVerdict>>? = null
     private var repackaged: List<String>? = null
+    private var baseApk: String? = null
 
+    private val installerDir = Regex("/data/app/.+|/mnt/expand/[^/]+/app/.+")
     private val debugSubject = setOf("CN=Android Debug", "O=Android", "C=US")
     private val aospTestKeys = setOf(
         "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc",
@@ -34,17 +35,40 @@ internal object TamperProbe {
         "ce7b2b47ae2b7552c8f92cc29124279883041fb623a5f194a82c9bf15d492aa0",
     )
 
-    fun collect(ctx: Context, deadline: Long): List<Signal> = listOf(
-        timedSignal("TAMPER_SIGNER", Group.APP_INTEGRITY, Certainty.PROOF) { signer(ctx) },
+    fun collect(ctx: Context, pins: Set<String>): List<Signal> = listOfNotNull(
+        if (pins.isEmpty()) null
+        else timedSignal("TAMPER_SIGNER", Group.APP_INTEGRITY, Certainty.PROOF) { signer(ctx, pins) },
         timedSignal("TAMPER_PUBLIC_KEY", Group.APP_INTEGRITY, Certainty.WEAK) { publicKey(ctx) },
         timedSignal("TAMPER_REPACKAGER", Group.APP_INTEGRITY, Certainty.PROOF) { repackager(ctx) },
-        timedSignal("TAMPER_APK_CONTENT", Group.APP_INTEGRITY, Certainty.STRONG) { apkContent(ctx, deadline) },
+        if (systemImage(ctx)) null
+        else timedSignal("TAMPER_APK_CONTENT", Group.APP_INTEGRITY, Certainty.STRONG) { apkContent(ctx) },
     )
 
     fun startContentCheck(ctx: Context) {
-        if (contentWorker != null) return
-        val files = listOf(ctx.applicationInfo.sourceDir) + ctx.applicationInfo.splitSourceDirs.orEmpty()
-        contentWorker = Thread { contentResults = files.map { File(it).name to verify(it) } }.apply { isDaemon = true; start() }
+        if (contentWorker != null || systemImage(ctx)) return
+        try {
+            val files = listOf(baseApk(ctx)) + ctx.applicationInfo.splitSourceDirs.orEmpty()
+            val known = androidSigners(ctx).toSet()
+            val targetSdk = ctx.applicationInfo.targetSdkVersion
+            contentWorker = Thread {
+                contentResults = try { verifyAll(files, known, targetSdk) } catch (t: Throwable) {
+                    listOf("apk" to ApkVerdict(Status.INCONCLUSIVE, null, "cannot verify: ${t.javaClass.simpleName}: ${t.message}"))
+                }
+            }.apply { isDaemon = true; start() }
+        } catch (t: Throwable) {
+            contentResults = listOf("apk" to ApkVerdict(Status.INCONCLUSIVE, null, "cannot start: ${t.javaClass.simpleName}: ${t.message}"))
+        }
+    }
+
+    private fun baseApk(ctx: Context): String = baseApk
+        ?: (try { NativeCore.apkPath(ctx.packageName) } catch (_: Throwable) { null } ?: ctx.applicationInfo.sourceDir).also { baseApk = it }
+
+    private fun installed(path: String): String = path.also {
+        require(installerDir.matches(it) && "/../" !in it) { "$it is not in a folder Android installs apps into" }
+    }
+
+    fun systemImage(ctx: Context): Boolean = ctx.applicationInfo.flags.let {
+        it and ApplicationInfo.FLAG_SYSTEM != 0 && it and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0
     }
 
     fun androidSigners(ctx: Context): List<String> = try {
@@ -54,12 +78,10 @@ internal object TamperProbe {
     private fun signers(ctx: Context): Signers =
         signerCerts ?: readSigner(ctx).also { if (it.current.isNotEmpty()) signerCerts = it }
 
-    private fun signer(ctx: Context): Pair<Status, String> {
+    private fun signer(ctx: Context, pins: Set<String>): Pair<Status, String> {
         val s = signers(ctx)
         val current = s.current
         val live = current.firstOrNull() ?: return Status.INCONCLUSIVE to "no signer cert"
-        val pins = Baselines.signers
-        if (pins.isEmpty()) return Status.INCONCLUSIVE to "no signer pin set (optional): $live"
         if (current.all { it in pins }) return Status.CLEAN to "signer matches pin: ${live.take(16)}"
         val anchor = s.history.firstOrNull { it in pins }
         if (current.size == 1 && anchor != null)
@@ -68,33 +90,27 @@ internal object TamperProbe {
             "pinned=${pins.joinToString(",") { it.take(16) }}"
     }
 
-    private fun apkContent(ctx: Context, deadline: Long): Pair<Status, String> {
+    private fun apkContent(ctx: Context): Pair<Status, String> {
         val s = signers(ctx)
         if (s.current.isEmpty()) return Status.INCONCLUSIVE to "no signer cert from Android"
-        if (!contentWaited) { contentWaited = true; contentWorker?.join(msLeft(deadline)) }
-        val results = contentResults
-            ?: return Status.INCONCLUSIVE to "still hashing the APK files at the first-run limit (2s); a later check() reports the result"
-        val known = (s.current + s.history).toSet()
+        contentWorker?.join()
+        val results = contentResults ?: return Status.INCONCLUSIVE to "the APK file check did not start"
         results.firstOrNull { it.second.status == Status.DETECTED }?.let { (n, v) -> return Status.DETECTED to "$n: ${v.detail}" }
-        results.firstOrNull { it.second.signer != null && it.second.signer !in known }?.let { (n, v) ->
-            return Status.DETECTED to "$n: signed by ${v.signer!!.take(16)}, Android reports ${s.current.joinToString(",") { it.take(16) }}"
-        }
         results.firstOrNull { it.second.status != Status.CLEAN }?.let { (n, v) -> return Status.INCONCLUSIVE to "$n: ${v.detail}" }
         return Status.CLEAN to "files=${results.size} match their signatures; ${results.first().second.detail}"
     }
 
-    private fun verify(path: String): ApkVerdict = try { ApkSignature.verify(path) } catch (t: Throwable) {
-        ApkVerdict(Status.INCONCLUSIVE, null, "cannot verify: ${t.javaClass.simpleName}: ${t.message}")
+    private fun verifyAll(files: List<String>, signers: Set<String>, targetSdk: Int): List<Pair<String, ApkVerdict>> = files.map { path ->
+        File(path).name to ParcelFileDescriptor.AutoCloseInputStream(ParcelFileDescriptor.adoptFd(NativeCore.open(installed(path))))
+            .use { ApkSignature.verify(it.channel, signers, targetSdk) }
     }
 
     private fun publicKey(ctx: Context): Pair<Status, String> {
-        if (ctx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
-            return Status.NOT_APPLICABLE to "debuggable build"
         val s = signers(ctx)
         if (s.subjects.isEmpty()) return Status.INCONCLUSIVE to "no signer cert"
         return when {
-            s.subjects.any { it == debugSubject } -> Status.DETECTED to "release build signed with the Android debug certificate"
-            s.current.any { it in aospTestKeys } -> Status.DETECTED to "release build signed with a public AOSP test key"
+            s.subjects.any { it == debugSubject } -> Status.DETECTED to "signed with the Android debug certificate"
+            s.current.any { it in aospTestKeys } -> Status.DETECTED to "signed with a public AOSP test key"
             else -> Status.CLEAN to "signer is not a publicly known key"
         }
     }
@@ -121,24 +137,18 @@ internal object TamperProbe {
             .subjectX500Principal.name.split(',').map { it.trim() }.toSet()
 
     private fun repackager(ctx: Context): Pair<Status, String> {
-        val hits = repackaged ?: repackagerHits(ctx.applicationInfo.sourceDir).also { repackaged = it }
+        val hits = repackaged ?: repackagerHits(baseApk(ctx)).also { repackaged = it }
         return if (hits.isNotEmpty()) Status.DETECTED to "repackager artifacts: $hits"
         else Status.CLEAN to "no repackager artifacts"
     }
 
     private fun repackagerHits(src: String): List<String> {
         val markers = listOf(
-            "assets/lspatch/", "origin.apk", "liblspatch.so", "assets/lspatch/origin.apk",
-            "assets/xpatch/", "AppClonerCodeClasses.jar", "assets/libAppCloner.zip", "libappcloner.so",
+            "assets/lspatch/", "liblspatch.so",
+            "assets/xpatch_asset/", "AppClonerCodeClasses.jar", "assets/libAppCloner.zip", "libappcloner.so",
         )
-        val hits = ArrayList<String>()
-        ZipFile(src).use { zf ->
-            val e = zf.entries()
-            while (e.hasMoreElements()) {
-                val name = e.nextElement().name
-                for (m in markers) if (name == m || name.startsWith(m)) { hits += name; break }
-            }
-        }
-        return hits
+        return ParcelFileDescriptor.AutoCloseInputStream(ParcelFileDescriptor.adoptFd(NativeCore.open(installed(src))))
+            .use { ApkSignature.entryNames(it.channel) }
+            .filter { n -> markers.any { n.startsWith(it) || n.endsWith("/$it") } }
     }
 }

@@ -10,6 +10,8 @@
 std::string g_own_process_name;
 std::vector<VmaEntry> g_maps;
 std::string g_expected_signers;
+std::string g_own_package;
+int g_target_sdk = 0;
 
 void init_own_process_name() {
     int fd = open("/proc/self/cmdline", O_RDONLY);

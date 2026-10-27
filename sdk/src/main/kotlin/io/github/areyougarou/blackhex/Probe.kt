@@ -15,4 +15,8 @@ internal inline fun timedSignal(
 
 internal fun msLeft(deadline: Long): Long = maxOf(1L, (deadline - System.nanoTime()) / 1_000_000)
 
+@Volatile internal var lastProgress = 0L
+
+internal fun progress() { lastProgress = System.nanoTime() }
+
 internal fun hex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }

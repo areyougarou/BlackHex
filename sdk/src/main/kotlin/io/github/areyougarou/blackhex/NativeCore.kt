@@ -4,19 +4,24 @@ import android.content.Context
 import java.io.File
 
 internal object NativeCore {
-    val loadError: Throwable? = load()
+    @Volatile private var loaded = false
 
-    @JvmStatic external fun run(signer: String?): String
+    @JvmStatic external fun run(signers: String?, pkg: String, targetSdk: Int): String
 
-    private fun load(): Throwable? {
-        val first = try { System.loadLibrary("blackhex"); return null } catch (t: Throwable) { t }
-        return try { loadFromAssets(); null } catch (t: Throwable) {
+    @JvmStatic external fun open(path: String): Int
+
+    @JvmStatic external fun apkPath(pkg: String): String?
+
+    @Synchronized
+    fun load(ctx: Context): Throwable? {
+        if (loaded) return null
+        val first = try { System.loadLibrary("blackhex"); loaded = true; return null } catch (t: Throwable) { t }
+        return try { loadFromAssets(ctx); loaded = true; null } catch (t: Throwable) {
             UnsatisfiedLinkError("${first.message}; from assets: $t").apply { initCause(t) }
         }
     }
 
-    private fun loadFromAssets() {
-        val ctx = appContext() ?: throw IllegalStateException("no application context")
+    private fun loadFromAssets(ctx: Context) {
         val abi = when (val isa = File(ctx.applicationInfo.nativeLibraryDir).name) {
             "arm64" -> "arm64-v8a"
             "arm" -> "armeabi-v7a"
@@ -37,9 +42,4 @@ internal object NativeCore {
         }
         System.load(out.absolutePath)
     }
-
-    private fun appContext(): Context? = try {
-        val at = Class.forName("android.app.ActivityThread")
-        at.getMethod("currentApplication").invoke(null) as? Context
-    } catch (_: Throwable) { null }
 }

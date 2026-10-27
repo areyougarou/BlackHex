@@ -21,7 +21,7 @@ integrity and returns signals plus a verdict. It does not send data back to our 
 
 | Group | Toggle | What it looks for |
 |-------|--------|-------------------|
-| App integrity | always on | The running app is the original signed build (each installed APK file checked against its own signature, the signer Android reports, package name, publicly known signing keys, repackager/cloner artifacts) |
+| App integrity | always on | The installed app files are intact and signed by the key Android reports for the app (each installed APK file checked against its own signature, the signer Android reports, package name, publicly known signing keys, repackager/cloner artifacts). Catching a copy re-signed with a different key needs the optional signer pin (see [Usage](#usage)). |
 | Instrumentation | ALLOW \| BLOCK | Runtime hooking / code injection (ART method hooks, inline-hook residue, injected libraries) |
 | Emulator | ALLOW \| BLOCK | Signs the app is running on an emulator / virtual device rather than real hardware (CPU/ISA, GPU, sensors, device nodes, build props) |
 | Root | ALLOW \| BLOCK | Signs of an unhidden rooted device (world-visible su, live Magisk/Zygisk/APatch daemon socket, module mount residue, a known root-manager app, kernel root token, privileged/non-zygote launch context) |
@@ -34,17 +34,18 @@ integrity and returns signals plus a verdict. It does not send data back to our 
 
 | Id | Certainty | DETECTED means |
 |---|---|---|
-| `TAMPER_SIGNER` | PROOF | The app is signed by a key that is not in your optional signer pin, and not a rotation from a pinned key. Without a pin it reports INCONCLUSIVE. |
-| `TAMPER_SIGNING_BLOCK` | STRONG | The signer written inside base.apk, read by native code with direct system calls, is not a signer Android reports for this app. So Android's answer, or the file, was faked or swapped. |
-| `TAMPER_APK_CONTENT` | STRONG | An installed APK file (the base or any split) no longer matches its own signature, or it is signed by a key outside the signer list Android reports for the app. |
-| `TAMPER_PUBLIC_KEY` | WEAK | A release build is signed with the Android debug certificate or a public AOSP test key, which anyone can use. Not reported on debuggable builds. |
+| `TAMPER_SIGNER` | PROOF | The app is signed by a key that is not in your optional signer pin, and not a rotation from a pinned key. Without a pin it is left out of the report. |
+| `TAMPER_SIGNING_BLOCK` | STRONG | No signing entry inside base.apk, read by native code with direct system calls, carries a signer Android reports for this app. So Android's answer, or the file, was faked or swapped. Left out for an app that ships inside the system image. |
+| `TAMPER_APK_CONTENT` | STRONG | An installed APK file (the base or any split) no longer matches its own signature, or no signing entry in it carries a signer Android reports for the app. A file with no v2/v3 signature reads DETECTED when the app targets Android 11 or later, and INCONCLUSIVE below that. Left out for an app that ships inside the system image. |
+| `TAMPER_PUBLIC_KEY` | WEAK | The app is signed with the Android debug certificate or a public AOSP test key, which anyone can use. |
 | `TAMPER_REPACKAGER` | PROOF | The APK holds files left by LSPatch, Xpatch or App Cloner. |
-| `CLV_PKGNAME_MISMATCH` | PROOF | The running package name differs from the application id written into the manifest when the app was built, so the app was renamed or cloned. |
+| `CLV_PKGNAME_MISMATCH` | PROOF | The running package name differs from the application id written into the manifest when the app was built, so the app was renamed or cloned. INCONCLUSIVE when that manifest value is missing. |
 | `CLV_CGROUP_UID_MISMATCH` | WEAK | The user id in the process's cgroup entry differs from the app's own user id, a sign that the app may run inside another app. |
 | `CLV_AM_SINGLETON_PROXY` | WEAK | The app's link to Android's activity manager was swapped for a Java proxy object, a trick used by app-cloning engines. |
 | `CLV_MAPS_ENGINE_STRING` | WEAK | The process memory map names a known app-cloning or virtual-phone engine (VirtualApp, Parallel Space, Dual Space, VMOS and others). |
 | `NATIVE_CORE` | WEAK | Never DETECTED. It appears, as INCONCLUSIVE, only when the native library did not run. |
-| `CHECK_IN_PROGRESS` | WEAK | Never DETECTED. It appears, as INCONCLUSIVE, on a main-thread call made while the first check is still running on another thread. |
+| `CHECK_STALLED` | STRONG | No check made progress for 5 s, or an earlier run is stuck. The report holds only the checks that finished, so it is treated as a block. |
+| `CHECK_FAILED` | STRONG | The run could not start, or it stopped with an error. |
 
 **Instrumentation**
 
@@ -67,7 +68,7 @@ integrity and returns signals plus a verdict. It does not send data back to our 
 | `ROOT_PROC_STATUS` | PROOF | The app process runs without the seccomp filter (the kernel rules Android puts on every normal app), so it was not started the normal way. |
 | `ROOT_SU_PATH` | STRONG | An `su` file exists in a standard place (`/system/bin/su`, `/system/xbin/su`, `/sbin/su` and others). |
 | `ROOT_KERNEL_STRING` | STRONG | The kernel version string names KernelSU, APatch or Magisk. |
-| `ROOT_MAGISK_DAEMON` | STRONG | The app can connect to a local socket named after a root daemon (Magisk, Zygisk, APatch). |
+| `ROOT_MAGISK_DAEMON` | STRONG | A local socket named after a root daemon (Magisk, Zygisk, APatch) is listening. CLEAN only when every name reports that nothing listens; any other error reads INCONCLUSIVE. |
 | `ROOT_SELINUX_DOMAIN` | WEAK | The process runs in a SELinux security domain other than the normal app domain, `untrusted_app`. |
 | `ROOT_MOUNT_TOKENS` | WEAK | The mount table shows system folders covered or replaced, or names Magisk, KernelSU, APatch or `/data/adb`. |
 | `ROOT_MANAGER_PKG` | WEAK | A known root manager app is installed (Magisk, KernelSU, APatch, SuperSU, KingRoot and others), found by its package name. |
@@ -100,7 +101,12 @@ integrity and returns signals plus a verdict. It does not send data back to our 
 
 BlackHex actively hunts only for values that can be confirmed without server verdicts. Device fingerprint, promo abuse and coordinated actions are not included in the free tier because they would violate this exact principle.
 
-Every check reports CLEAN, DETECTED, INCONCLUSIVE (it could not get an answer) or NOT_APPLICABLE (it is not built for this phone's chip type), plus a certainty:
+Every check reports CLEAN, DETECTED or INCONCLUSIVE (it could not get an answer). A check is left
+out of the report in two cases, both known before anything is read. It does not apply to this app
+(the signer check with no pin, or the APK file checks for an app that ships inside the system
+image). Or it is not built for this phone's chip type: 6 instrumentation checks are built only for
+64-bit chips and 4 of them only for arm64, so 32-bit ARM and x86 phones miss 6 and x86_64 phones
+miss 4. The second case means less coverage, not a clean result. Each signal also has a certainty:
 - **PROOF**: it does not show up unless the thing it names is really there.
 - **STRONG**: it almost never shows up without it.
 - **WEAK**: honest phones can show it too. A WEAK signal is reported but never blocks.
@@ -129,6 +135,8 @@ On the other side, App Integrity and Instrumentation are always and unambiguousl
 - If the native library cannot load on a phone, your app still opens. The report then carries
   a `NATIVE_CORE` signal (INCONCLUSIVE) and most checks are missing: treat it as incomplete,
   not as clean.
+- An app signed only with the old v1 scheme and targeting Android 10 or lower gets INCONCLUSIVE
+  from the two APK file checks, because they read only v2/v3 signatures.
 
 ## Usage
 
@@ -145,33 +153,48 @@ val policy = Policy(
     bootloader = Mode.ALLOW,
 )
 
-// Always call from a background thread, at startup and at sensitive moments (login, payment).
-// The first call in a process does real work (it reads the installed APK), so never run it
-// on the main thread. A main-thread call made while the first check is still running returns
-// at once with the previous result, or a single CHECK_IN_PROGRESS signal if none exists yet.
-val report = BlackHex.check(context, policy)
-
-when (report.verdict) {
-    Verdict.PASS  -> proceed()
-    Verdict.BLOCK -> handleFailure(report.enforced)   // PROOF or STRONG DETECTED signals in app integrity or a BLOCK group
+// Call at startup and at sensitive moments (login, payment), from any thread. check() returns
+// at once: the checks run on a BlackHex thread, and the callback runs on the main thread.
+BlackHex.check(context, policy) { report ->
+    when (report.verdict) {
+        Verdict.PASS  -> proceed()
+        Verdict.BLOCK -> handleFailure(report.enforced)   // PROOF or STRONG DETECTED signals in app integrity or a BLOCK group
+    }
 }
 ```
 
 Nothing to paste: BlackHex learns your app's identity on its own. Optionally, to also catch
-copies re-signed with someone else's key, pin the SHA-256 of your Play app signing
-certificate (Play Console, "App integrity" page). If you also ship outside Play, add that
-signing certificate's SHA-256 to the same set:
+copies re-signed with someone else's key, pin your signing certificate before the first
+`check()`. For Play, copy the SHA-256 of the **app signing key certificate** from Play Console,
+App integrity page, App signing section. Do not use the upload key certificate shown on the
+same page: Google re-signs your app with the app signing key, so a pin holding only the upload
+key flags every user. If you also ship outside Play, add that signing certificate's SHA-256 to
+the same set:
 
 ```kotlin
-BlackHex.baseline { signers = setOf("<SHA-256 of the Play app signing certificate>") }
+BlackHex.baseline { signers = setOf("<SHA-256 of the Play app signing key certificate>") }
 ```
 
 - `report.signals`: every signal with its id, group, certainty, status, details and run time (micros).
 - `report.enforced`: the DETECTED signals that drove a BLOCK verdict (empty on PASS).
 - An INCONCLUSIVE signal never contributes to a BLOCK verdict.
-- Cost, on our slowest test phone (Pixel 3a, Android 12): the first call in an app process
-  takes 146 ms for a 52 MB app and 299 ms for a 283 MB app, and about 1 s for that 283 MB
-  app right after a reboot. The first call never takes more than 2 s; later calls take about 100 ms.
+- Never block the main thread waiting for the callback: the callback runs on the main thread,
+  so it would never arrive.
+- Calls made while a check is running share that run, and each callback gets a report built with
+  its own policy. A run uses the signer pin that was set when the run started.
+- If `context` is an Activity, or a context wrapped around one, and that Activity is finishing or
+  destroyed when the result is ready, the callback is not called. After a screen rotation, call
+  `check()` again from the new screen; it joins the run already going. Pass the application
+  context to always get the callback.
+- If no check makes progress for 5 s, the callback gets the signals finished so far plus
+  `CHECK_STALLED`, so the verdict is BLOCK. A check missing from that report did not finish; it
+  was not left out. Hashing the APK files counts as progress, so a large app is not cut off for
+  its size. If an earlier run has made no progress for 5 s, a new call gets `CHECK_STALLED`
+  alone at once, never that run's old results.
+- Cost, from the call to the callback, first call in an app process: 50 to 380 ms for a 5 MB app
+  on six test phones (Android 12 to 17). On our slowest phone (Pixel 3a, Android 12) a 284 MB app
+  takes 206 to 339 ms, and about 0.95 s right after a reboot, when the whole APK is read from
+  storage. Later calls in the same process take about 100 ms.
 
 ## Build
 

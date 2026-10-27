@@ -25,6 +25,13 @@ long now_us() {
 }
 
 JNIEnv* g_env = nullptr;
+
+std::string jstr(JNIEnv* env, jstring s) {
+    const char* c = s ? env->GetStringUTFChars(s, nullptr) : nullptr;
+    std::string out = c ? c : "";
+    if (c) env->ReleaseStringUTFChars(s, c);
+    return out;
+}
 NativeResult check_art() { return check_art_entrypoint_integrity(g_env); }
 
 struct Check { const char* id; NativeResult (*fn)(); const char* group; int certainty; };
@@ -62,16 +69,29 @@ const Check CHECKS[] = {
 
 }
 
+extern "C" JNIEXPORT jint JNICALL
+Java_io_github_areyougarou_blackhex_NativeCore_open(JNIEnv* env, jclass, jstring path) {
+    const char* p = env->GetStringUTFChars(path, nullptr);
+    if (!p) return -1;
+    int fd = raw_open(p);
+    env->ReleaseStringUTFChars(path, p);
+    return fd;
+}
+
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_github_areyougarou_blackhex_NativeCore_run(JNIEnv* env, jclass, jstring signer) {
+Java_io_github_areyougarou_blackhex_NativeCore_apkPath(JNIEnv* env, jclass, jstring pkg) {
+    std::string p = own_apk_path(read_maps(), jstr(env, pkg));
+    return p.empty() ? nullptr : env->NewStringUTF(p.c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_github_areyougarou_blackhex_NativeCore_run(JNIEnv* env, jclass, jstring signers, jstring pkg, jint targetSdk) {
     init_own_process_name();
     g_maps = read_maps();
     mem_run_begin();
-    g_expected_signers.clear();
-    if (signer) {
-        const char* s = env->GetStringUTFChars(signer, nullptr);
-        if (s) { g_expected_signers = s; env->ReleaseStringUTFChars(signer, s); }
-    }
+    g_expected_signers = jstr(env, signers);
+    g_own_package = jstr(env, pkg);
+    g_target_sdk = targetSdk;
     g_env = env;
     std::string json = "[";
     for (const Check& c : CHECKS) {

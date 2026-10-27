@@ -24,11 +24,14 @@ internal object CloneProbe {
         }
     }
 
-    private fun pkgName(ctx: Context): Pair<Status, String> {
+    private fun buildTimeId(ctx: Context): String? = try {
         @Suppress("DEPRECATION")
-        val expected = ctx.packageManager.getApplicationInfo(ctx.packageName, PackageManager.GET_META_DATA)
-            .metaData?.getString("io.github.areyougarou.blackhex.applicationId")
-            ?: return Status.INCONCLUSIVE to "no build-time application id in the manifest"
+        ctx.packageManager.getApplicationInfo(ctx.packageName, PackageManager.GET_META_DATA)
+            .metaData?.getString("io.github.areyougarou.blackhex.applicationId")?.takeIf { '$' !in it && '{' !in it }
+    } catch (_: Throwable) { null }
+
+    private fun pkgName(ctx: Context): Pair<Status, String> {
+        val expected = buildTimeId(ctx) ?: return Status.INCONCLUSIVE to "no build-time package name in the app manifest"
         val pkg = ctx.packageName
         return (if (pkg != expected) Status.DETECTED else Status.CLEAN) to "pkg=$pkg expected=$expected"
     }

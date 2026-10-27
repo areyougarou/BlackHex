@@ -30,7 +30,7 @@ const char* errname(int e) {
         case EPERM: return "EPERM"; case EINVAL: return "EINVAL"; case ENOSYS: return "ENOSYS";
         case EFAULT: return "EFAULT"; case ECONNREFUSED: return "ECONNREFUSED";
         case ENOTDIR: return "ENOTDIR"; case EISDIR: return "EISDIR"; case ELOOP: return "ELOOP";
-        case ENXIO: return "ENXIO"; case EOPNOTSUPP: return "EOPNOTSUPP"; default: return "errno?";
+        case ENXIO: return "ENXIO"; case EOPNOTSUPP: return "EOPNOTSUPP"; case EAGAIN: return "EAGAIN"; default: return "errno?";
     }
 }
 
@@ -198,15 +198,24 @@ NativeResult check_root_kernel_string() {
 
 NativeResult check_root_magisk_daemon() {
     static const char* names[] = { "magisk","magiskd","magisksu","zygisk_lp64","zygisk_next","apatch_daemon", nullptr };
-    bool present = false; std::string hit;
+    std::string hit, seen; bool unknown = false;
     for (int i = 0; names[i]; i++) {
-        int s = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0); if (s < 0) continue;
-        struct sockaddr_un a; memset(&a, 0, sizeof a); a.sun_family = AF_UNIX;
-        size_t nl = strlen(names[i]); a.sun_path[0] = 0; memcpy(a.sun_path + 1, names[i], nl);
-        socklen_t len = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + nl);
-        errno = 0; int rc = connect(s, (struct sockaddr*)&a, len); close(s);
-        if (rc == 0) { present = true; hit += std::string(names[i]) + " "; }
+        int e = 0;
+        int s = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+        if (s < 0) e = errno;
+        else {
+            struct sockaddr_un a; memset(&a, 0, sizeof a); a.sun_family = AF_UNIX;
+            size_t nl = strlen(names[i]); a.sun_path[0] = 0; memcpy(a.sun_path + 1, names[i], nl);
+            socklen_t len = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + nl);
+            if (connect(s, (struct sockaddr*)&a, len) != 0) e = errno;
+            close(s);
+        }
+        std::string r = std::string(names[i]) + ":" + (strcmp(errname(e), "errno?") ? errname(e) : std::to_string(e)) + " ";
+        seen += r;
+        if (s >= 0 && (e == 0 || e == EAGAIN)) hit += r;
+        else if (s < 0 || (e != ECONNREFUSED && e != ENOENT)) unknown = true;
     }
-    return {present ? STATUS_DETECTED : STATUS_CLEAN,
-            present ? ("connected: " + hit) : "no connect (absent)"};
+    if (!hit.empty()) return {STATUS_DETECTED, "listening: " + hit};
+    if (unknown) return {STATUS_INCONCLUSIVE, "could not look: " + seen};
+    return {STATUS_CLEAN, "nothing listening: " + seen};
 }

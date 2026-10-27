@@ -1,9 +1,7 @@
 package io.github.areyougarou.blackhex
 
-import android.os.Build
 import java.io.ByteArrayInputStream
 import java.io.EOFException
-import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
@@ -39,49 +37,38 @@ internal object ApkSignature {
         Alg(0x0102, "SHA512withRSA/PSS", "RSA", "SHA-512", PSSParameterSpec("SHA-512", "MGF1", MGF1ParameterSpec.SHA512, 64, 1)),
     )
 
-    fun verify(path: String, sdk: Int = Build.VERSION.SDK_INT): ApkVerdict = RandomAccessFile(path, "r").use { f ->
-        val size = f.length()
-        val tail = ByteArray(minOf(size, 65557L).toInt())
-        f.seek(size - tail.size); f.readFully(tail)
-        val e = (tail.size - 22 downTo 0).firstOrNull { le32(tail, it) == 0x06054b50 }
-            ?: return ApkVerdict(Status.INCONCLUSIVE, null, "no ZIP end record")
-        val eocd = tail.copyOfRange(e, tail.size)
-        val eocdOff = size - tail.size + e
+    fun verify(f: FileChannel, known: Set<String>, targetSdk: Int): ApkVerdict {
+        if (known.isEmpty()) return ApkVerdict(Status.INCONCLUSIVE, null, "no signer from Android to compare")
+        val (eocd, eocdOff) = endRecord(f) ?: return ApkVerdict(Status.INCONCLUSIVE, null, "no ZIP end record")
         val cdOff = le32(eocd, 16).toLong() and 0xffffffffL
         val cdSize = le32(eocd, 12).toLong() and 0xffffffffL
         if (cdOff + cdSize != eocdOff || cdOff < 32) return ApkVerdict(Status.INCONCLUSIVE, null, "unexpected ZIP layout")
-        val foot = ByteArray(24).also { f.seek(cdOff - 24); f.readFully(it) }
-        if (String(foot, 8, 16, Charsets.US_ASCII) != "APK Sig Block 42")
-            return ApkVerdict(Status.INCONCLUSIVE, null, "no v2/v3 signing block (v1 only)")
+        val foot = read(f, cdOff - 24, 24)
+        if (String(foot, 8, 16, Charsets.US_ASCII) != "APK Sig Block 42") return if (targetSdk >= 30)
+            ApkVerdict(Status.DETECTED, null, "no v2/v3 signing block: the APK is signed with v1 only, which Android refuses for targetSdkVersion $targetSdk")
+        else ApkVerdict(Status.INCONCLUSIVE, null, "signed with v1 only, which Android accepts below targetSdkVersion 30; this check reads only v2/v3 signers")
         val blockSize = ByteBuffer.wrap(foot).order(ByteOrder.LITTLE_ENDIAN).long
         if (blockSize < 24 || blockSize > 16L * CHUNK || blockSize + 8 > cdOff)
             return ApkVerdict(Status.INCONCLUSIVE, null, "implausible signing block size")
         val blockStart = cdOff - blockSize - 8
-        val head = ByteArray(8).also { f.seek(blockStart); f.readFully(it) }
+        val head = read(f, blockStart, 8)
         if (le(head).long != blockSize) return ApkVerdict(Status.INCONCLUSIVE, null, "signing block sizes do not match")
-        val pairs = ByteArray((blockSize - 24).toInt()).also { f.seek(blockStart + 8); f.readFully(it) }
+        val pairs = read(f, blockStart + 8, (blockSize - 24).toInt())
         val blocks = try { idValues(pairs) } catch (t: RuntimeException) {
             return ApkVerdict(Status.INCONCLUSIVE, null, "unparseable signing block")
         }
-        val chosen = try { choose(blocks, sdk) } catch (t: RuntimeException) {
+        val entries = try {
+            listOf(V31 to "v3.1", V3 to "v3", V2 to "v2").flatMap { (id, scheme) -> blocks[id]?.let { entries(it, scheme, id != V2) }.orEmpty() }
+        } catch (t: RuntimeException) {
             return ApkVerdict(Status.INCONCLUSIVE, null, "unparseable signer")
-        } ?: return ApkVerdict(Status.INCONCLUSIVE, null, "no v2/v3 signer for SDK $sdk")
-        val (scheme, signedData, sigs, publicKey) = chosen
+        }
+        if (entries.isEmpty()) return ApkVerdict(Status.INCONCLUSIVE, null, "no v2/v3 signer")
+        val e = entries.firstOrNull { it.signer in known } ?: return ApkVerdict(Status.DETECTED, entries.first().signer,
+            "no signing entry in the file carries a signer Android reports: file=${entries.joinToString(",") { it.signer.take(16) }} " +
+                "android=${known.joinToString(",") { it.take(16) }}")
+        val (scheme, signedData, sigs, publicKey, digests, certDer, signer) = e
         val alg = algs.firstOrNull { a -> a.id in sigs }
             ?: return ApkVerdict(Status.INCONCLUSIVE, null, "$scheme: no supported signature algorithm")
-        val digests = HashMap<Int, ByteArray>()
-        val certs = ArrayList<ByteArray>()
-        try {
-            val sd = le(signedData)
-            val ds = sd.lp()
-            while (ds.hasRemaining()) { val d = ds.lp(); digests[d.int] = d.lp().bytes() }
-            val cs = sd.lp()
-            while (cs.hasRemaining()) certs += cs.lp().bytes()
-        } catch (t: RuntimeException) {
-            return ApkVerdict(Status.INCONCLUSIVE, null, "$scheme: unparseable signed data")
-        }
-        val certDer = certs.firstOrNull() ?: return ApkVerdict(Status.INCONCLUSIVE, null, "$scheme: no certificate")
-        val signer = hex(MessageDigest.getInstance("SHA-256").digest(certDer))
         val key = KeyFactory.getInstance(alg.key).generatePublic(X509EncodedKeySpec(publicKey))
         val ok = Signature.getInstance(alg.jca).run {
             initVerify(key)
@@ -94,32 +81,63 @@ internal object ApkSignature {
         if (!cert.publicKey.encoded.contentEquals(publicKey))
             return ApkVerdict(Status.DETECTED, signer, "$scheme: certificate does not carry the signing key")
         val expected = digests[alg.id] ?: return ApkVerdict(Status.INCONCLUSIVE, signer, "$scheme: no content digest")
-        val actual = contentDigest(f.channel, alg.digest, blockStart, cdOff, eocdOff, eocd)
+        val actual = contentDigest(f, alg.digest, blockStart, cdOff, eocdOff, eocd)
         if (!actual.contentEquals(expected))
             return ApkVerdict(Status.DETECTED, signer, "$scheme: file contents differ from what was signed")
-        ApkVerdict(Status.CLEAN, signer, "$scheme: contents match the signature, signer ${signer.take(16)}")
+        return ApkVerdict(Status.CLEAN, signer, "$scheme: contents match the signature, signer ${signer.take(16)}")
     }
 
-    private data class Chosen(val scheme: String, val signedData: ByteArray, val sigs: Map<Int, ByteArray>, val publicKey: ByteArray)
-
-    private fun choose(blocks: Map<Int, ByteArray>, sdk: Int): Chosen? {
-        if (sdk >= 33) blocks[V31]?.let { v -> signer(v, true, sdk)?.let { return it.copy(scheme = "v3.1") } }
-        if (sdk >= 28) blocks[V3]?.let { v -> signer(v, true, sdk)?.let { return it.copy(scheme = "v3") } }
-        return blocks[V2]?.let { v -> signer(v, false, sdk)?.copy(scheme = "v2") }
+    fun entryNames(f: FileChannel): List<String> {
+        val (eocd, eocdOff) = requireNotNull(endRecord(f)) { "no ZIP end record" }
+        val cdOff = le32(eocd, 16).toLong() and 0xffffffffL
+        require(cdOff + (le32(eocd, 12).toLong() and 0xffffffffL) == eocdOff) { "unexpected ZIP layout" }
+        val cd = le(read(f, cdOff, le32(eocd, 12)))
+        val names = ArrayList<String>()
+        while (cd.remaining() >= 46 && cd.getInt(cd.position()) == 0x02014b50) {
+            val p = cd.position()
+            val n = cd.getShort(p + 28).toInt() and 0xffff
+            names += String(ByteArray(n).also { cd.position(p + 46); cd.get(it) }, Charsets.UTF_8)
+            cd.position(p + 46 + n + (cd.getShort(p + 30).toInt() and 0xffff) + (cd.getShort(p + 32).toInt() and 0xffff))
+        }
+        require("AndroidManifest.xml" in names) { "no AndroidManifest.xml in the ZIP directory" }
+        return names
     }
 
-    private fun signer(value: ByteArray, v3: Boolean, sdk: Int): Chosen? {
+    private fun endRecord(f: FileChannel): Pair<ByteArray, Long>? {
+        val size = f.size()
+        val tail = read(f, size - minOf(size, 65557L), minOf(size, 65557L).toInt())
+        val e = (tail.size - 22 downTo 0).firstOrNull {
+            le32(tail, it) == 0x06054b50 && it + 22 + ((tail[it + 20].toInt() and 0xff) or ((tail[it + 21].toInt() and 0xff) shl 8)) == tail.size
+        } ?: return null
+        return tail.copyOfRange(e, tail.size) to size - tail.size + e
+    }
+
+    private data class Entry(
+        val scheme: String, val signedData: ByteArray, val sigs: Map<Int, ByteArray>, val publicKey: ByteArray,
+        val digests: Map<Int, ByteArray>, val cert: ByteArray, val signer: String,
+    )
+
+    private fun entries(value: ByteArray, scheme: String, v3: Boolean): List<Entry> {
+        val out = ArrayList<Entry>()
         val signers = le(value).lp()
         while (signers.hasRemaining()) {
             val s = signers.lp()
             val signedData = s.lp().bytes()
-            if (v3) { val min = s.int; val max = s.int; if (sdk < min || sdk > max) continue }
+            if (v3) { s.int; s.int }
             val sigs = HashMap<Int, ByteArray>()
             val ss = s.lp()
             while (ss.hasRemaining()) { val one = ss.lp(); sigs[one.int] = one.lp().bytes() }
-            return Chosen("", signedData, sigs, s.lp().bytes())
+            val publicKey = s.lp().bytes()
+            val sd = le(signedData)
+            val digests = HashMap<Int, ByteArray>()
+            val ds = sd.lp()
+            while (ds.hasRemaining()) { val d = ds.lp(); digests[d.int] = d.lp().bytes() }
+            val cs = sd.lp()
+            if (!cs.hasRemaining()) continue
+            val cert = cs.lp().bytes()
+            out += Entry(scheme, signedData, sigs, publicKey, digests, cert, hex(MessageDigest.getInstance("SHA-256").digest(cert)))
         }
-        return null
+        return out
     }
 
     private fun idValues(pairs: ByteArray): Map<Int, ByteArray> {
@@ -153,9 +171,9 @@ internal object ApkSignature {
                         if (i >= chunks.size) break
                         val (pos, n) = chunks[i]
                         buf.clear().limit(n)
-                        while (buf.hasRemaining()) if (ch.read(buf, pos + buf.position()) < 0) throw EOFException()
-                        buf.flip()
+                        fill(ch, buf, pos).flip()
                         out[i] = chunk(md, buf)
+                        progress()
                     }
                 }
             }).forEach { it.get() }
@@ -171,6 +189,13 @@ internal object ApkSignature {
         md.update(0xa5.toByte()); md.update(u32(data.remaining())); md.update(data)
         return md.digest()
     }
+
+    private fun fill(ch: FileChannel, b: ByteBuffer, pos: Long): ByteBuffer {
+        while (b.hasRemaining()) if (ch.read(b, pos + b.position()) < 0) throw EOFException()
+        return b
+    }
+
+    private fun read(ch: FileChannel, pos: Long, n: Int): ByteArray = fill(ch, ByteBuffer.allocate(n), pos).array()
 
     private fun le(b: ByteArray): ByteBuffer = ByteBuffer.wrap(b).order(ByteOrder.LITTLE_ENDIAN)
 
