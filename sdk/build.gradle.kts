@@ -10,7 +10,7 @@ plugins {
 }
 
 android {
-    namespace = "rasp.sdk"
+    namespace = "io.github.areyougarou.blackhex"
     compileSdk = 35
     ndkVersion = "27.2.12479018"
 

@@ -63,14 +63,14 @@ const Check CHECKS[] = {
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_rasp_sdk_NativeCore_run(JNIEnv* env, jclass, jstring signer) {
+Java_io_github_areyougarou_blackhex_NativeCore_run(JNIEnv* env, jclass, jstring signer) {
     init_own_process_name();
     g_maps = read_maps();
     mem_run_begin();
-    g_signer_baseline.clear();
+    g_expected_signers.clear();
     if (signer) {
         const char* s = env->GetStringUTFChars(signer, nullptr);
-        if (s) { g_signer_baseline = s; env->ReleaseStringUTFChars(signer, s); }
+        if (s) { g_expected_signers = s; env->ReleaseStringUTFChars(signer, s); }
     }
     g_env = env;
     std::string json = "[";

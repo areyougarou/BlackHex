@@ -1,4 +1,4 @@
-package rasp.sdk
+package io.github.areyougarou.blackhex
 
 internal inline fun timedSignal(
     id: String,
@@ -12,3 +12,7 @@ internal inline fun timedSignal(
     }
     return Signal(id, group, certainty, st, det, (System.nanoTime() - t0) / 1000)
 }
+
+internal fun msLeft(deadline: Long): Long = maxOf(1L, (deadline - System.nanoTime()) / 1_000_000)
+
+internal fun hex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }

@@ -1,4 +1,4 @@
-package rasp.sdk
+package io.github.areyougarou.blackhex
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
@@ -47,18 +47,10 @@ data class Report(
 class BaselineBuilder {
     var signer: String? = null
     var signers: Set<String> = emptySet()
-    var packageName: String? = null
-    var resources: String? = null
-    var nativeLib: String? = null
-    var dexCrc: Long? = null
 }
 
 internal object Baselines {
     @Volatile var signers: Set<String> = emptySet()
-    @Volatile var packageName: String? = null
-    @Volatile var resources: String? = null
-    @Volatile var nativeLib: String? = null
-    @Volatile var dexCrc: Long? = null
 }
 
 object BlackHex {
@@ -73,10 +65,6 @@ object BlackHex {
             .map { pin -> pin.filterNot { it == ':' || it.isWhitespace() }.lowercase() }
             .filter { it.isNotEmpty() }
             .toSet()
-        Baselines.packageName = b.packageName
-        Baselines.resources = b.resources
-        Baselines.nativeLib = b.nativeLib
-        Baselines.dexCrc = b.dexCrc
     }
 
     fun check(context: Context, policy: Policy = Policy()): Report {
@@ -114,25 +102,28 @@ object BlackHex {
     }
 
     private fun collect(context: Context): List<Signal> {
-        val signals = ArrayList(nativeSignals())
-        signals += AppProbe.collect()
-        signals += TamperProbe.collect(context)
+        val deadline = System.nanoTime() + 2_000_000_000L
+        TamperProbe.startContentCheck(context)
+        val signals = ArrayList(nativeSignals(context))
+        signals += AppProbe.collect(deadline)
         signals += CustomRomProbe.collect(context)
         signals += CloneProbe.collect(context)
         signals += RootManagerProbe.collect(context)
+        signals += TamperProbe.collect(context, deadline)
         if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            signals.filter { it.status == Status.DETECTED && it.id.startsWith("TAMPER_SIGN") }.forEach {
-                Log.w("BlackHex", "${it.id}: signer pin mismatch (${it.details}). Pin the SHA-256 of every " +
-                    "certificate users install, including the Play app signing key: BlackHex.baseline { signers = setOf(...) }")
+            signals.filter { it.status == Status.DETECTED && it.id == "TAMPER_SIGNER" }.forEach {
+                Log.w("BlackHex", "${it.id}: the installed signer is not in your optional signer pin (${it.details}). " +
+                    "No pin is needed. If you keep one, it must list every signing key users install from, " +
+                    "including the Play app signing key; otherwise remove BlackHex.baseline { signers = ... }")
             }
         }
         return signals
     }
 
-    private fun nativeSignals(): List<Signal> {
+    private fun nativeSignals(context: Context): List<Signal> {
         val t0 = System.nanoTime()
         val failure = NativeCore.loadError ?: try {
-            val arr = JSONArray(NativeCore.run(Baselines.signers.joinToString(",").ifEmpty { null }))
+            val arr = JSONArray(NativeCore.run(TamperProbe.androidSigners(context).joinToString(",").ifEmpty { null }))
             return (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 Signal(

@@ -30,4 +30,7 @@
         <package android:name="com.kingroot.kinguser" />
         <package android:name="com.kingo.root" />
     </queries>
+    <application>
+        <meta-data android:name="io.github.areyougarou.blackhex.applicationId" android:value="${applicationId}" />
+    </application>
 </manifest>

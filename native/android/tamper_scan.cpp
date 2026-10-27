@@ -184,18 +184,18 @@ NativeResult check_tamper_signing_block(){
     NativeResult r;
     const std::string& cert_hash=cached.hash; const char* scheme=cached.scheme;
 
-    std::vector<std::string> pins; std::string cur;
-    for(size_t i=0;i<=g_signer_baseline.size();i++){
-        char c = i<g_signer_baseline.size() ? g_signer_baseline[i] : ',';
-        if(c==','){ if(!cur.empty()) pins.push_back(cur); cur.clear(); }
+    std::vector<std::string> expected; std::string cur;
+    for(size_t i=0;i<=g_expected_signers.size();i++){
+        char c = i<g_expected_signers.size() ? g_expected_signers[i] : ',';
+        if(c==','){ if(!cur.empty()) expected.push_back(cur); cur.clear(); }
         else if(c!=':' && c!=' ') cur += (char)tolower((unsigned char)c);
     }
-    if(pins.empty()){ r.status=STATUS_INCONCLUSIVE; r.details="signer baseline unset - pin this: "+cert_hash+" ("+scheme+")"; return r; }
-    std::string pinned;
-    for(const auto& p : pins){
-        if(p==cert_hash){ r.status=STATUS_CLEAN; r.details="native signer matches pin ("+std::string(scheme)+"): "+cert_hash.substr(0,16)+"..."; return r; }
-        pinned += p.substr(0,16)+"... ";
+    if(expected.empty()){ r.status=STATUS_INCONCLUSIVE; r.details="no signer from Android to compare: "+cert_hash+" ("+scheme+")"; return r; }
+    std::string listed;
+    for(const auto& p : expected){
+        if(p==cert_hash){ r.status=STATUS_CLEAN; r.details="file signer matches the signer Android reports ("+std::string(scheme)+"): "+cert_hash.substr(0,16)+"..."; return r; }
+        listed += p.substr(0,16)+"... ";
     }
-    r.status=STATUS_DETECTED; r.details="native signer MISMATCH ("+std::string(scheme)+"): live="+cert_hash.substr(0,16)+"... pinned="+pinned;
+    r.status=STATUS_DETECTED; r.details="file signer MISMATCH ("+std::string(scheme)+"): file="+cert_hash.substr(0,16)+"... android="+listed;
     return r;
 }

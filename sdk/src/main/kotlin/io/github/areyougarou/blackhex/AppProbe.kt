@@ -1,4 +1,4 @@
-package rasp.sdk
+package io.github.areyougarou.blackhex
 
 import android.opengl.EGL14
 import android.opengl.EGLConfig
@@ -9,18 +9,18 @@ internal object AppProbe {
     private var glWorker: Thread? = null
     @Volatile private var glResult: Pair<Status, String>? = null
 
-    fun collect(): List<Signal> = listOf(
-        timedSignal("EMU_GL", Group.EMULATOR, Certainty.WEAK) { gl() },
+    fun collect(deadline: Long): List<Signal> = listOf(
+        timedSignal("EMU_GL", Group.EMULATOR, Certainty.WEAK) { gl(deadline) },
     )
 
-    private fun gl(): Pair<Status, String> {
+    private fun gl(deadline: Long): Pair<Status, String> {
         glResult?.let { return it }
         if (glWorker == null) {
             glWorker = Thread {
                 glResult = try { glRenderer() } catch (t: Throwable) { Status.INCONCLUSIVE to "probe error: ${t.message}" }
-            }.apply { isDaemon = true; start(); join(2000) }
+            }.apply { isDaemon = true; start(); join(msLeft(deadline)) }
         }
-        return glResult ?: (Status.INCONCLUSIVE to "GL probe still running (>2s) - stalled HAL (emulator-like)")
+        return glResult ?: (Status.INCONCLUSIVE to "GL probe still running at the first-run limit (2s) - stalled HAL (emulator-like)")
     }
 
     private fun glRenderer(): Pair<Status, String> {

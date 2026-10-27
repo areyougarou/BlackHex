@@ -1,1 +1,1 @@
--keep class rasp.sdk.NativeCore { native <methods>; }
+-keep class io.github.areyougarou.blackhex.NativeCore { native <methods>; }

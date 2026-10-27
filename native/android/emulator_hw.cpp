@@ -65,7 +65,7 @@ static NativeResult sensors_probe() {
     NativeResult r;
 
     ASensorManager* m = nullptr;
-    const char* pkg = g_own_process_name.empty() ? "rasp.sdk" : g_own_process_name.c_str();
+    const char* pkg = g_own_process_name.empty() ? "io.github.areyougarou.blackhex" : g_own_process_name.c_str();
 #if __ANDROID_API__ >= 26
     m = ASensorManager_getInstanceForPackage(pkg);
 #else

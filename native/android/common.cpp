@@ -9,7 +9,7 @@
 
 std::string g_own_process_name;
 std::vector<VmaEntry> g_maps;
-std::string g_signer_baseline;
+std::string g_expected_signers;
 
 void init_own_process_name() {
     int fd = open("/proc/self/cmdline", O_RDONLY);

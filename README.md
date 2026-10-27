@@ -48,10 +48,10 @@ On the other side, App Integrity and Instrumentation are always and unambiguousl
 ## Usage
 
 ```kotlin
-import rasp.sdk.BlackHex
-import rasp.sdk.Policy
-import rasp.sdk.Mode
-import rasp.sdk.Verdict
+import io.github.areyougarou.blackhex.BlackHex
+import io.github.areyougarou.blackhex.Policy
+import io.github.areyougarou.blackhex.Mode
+import io.github.areyougarou.blackhex.Verdict
 
 val policy = Policy(
     emulator = Mode.BLOCK,
