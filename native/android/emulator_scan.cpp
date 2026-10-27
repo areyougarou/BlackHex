@@ -31,13 +31,14 @@ NativeResult check_emu_cpu_isa() {
     if (ci.empty()) { r.status = STATUS_INCONCLUSIVE; r.details = "cpuinfo unreadable - cannot judge"; return r; }
     std::string lc = lower(ci);
     std::string hit;
-    for (const char* s : {"model name", "vendor_id", "genuineintel", "authenticamd",
-                          " vmx ", " svm ", "hypervisor"})
+#if !defined(__i386__) && !defined(__x86_64__)
+    for (const char* s : {"vendor_id", "genuineintel", "authenticamd", " vmx ", " svm ", "hypervisor"})
         if (has(lc, s)) hit += std::string(s) + " ";
+#endif
     for (const char* s : {"goldfish", "ranchu", "vbox", "android emulator"})
         if (has(lc, s)) hit += std::string(s) + " ";
-    if (!hit.empty()) { r.status = STATUS_DETECTED; r.details = "x86/virtualization/emulator markers: " + hit; }
-    else { r.status = STATUS_CLEAN; r.details = "arm64 CPU, no x86/hypervisor/emulator markers"; }
+    if (!hit.empty()) { r.status = STATUS_DETECTED; r.details = "emulator / foreign-ISA markers in cpuinfo: " + hit; }
+    else { r.status = STATUS_CLEAN; r.details = "no emulator / foreign-ISA markers in cpuinfo"; }
     return r;
 }
 

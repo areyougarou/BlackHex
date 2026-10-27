@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#if defined(__LP64__)
+
 namespace {
 
 bool is_candidate_region(const VmaEntry& v) {
@@ -82,3 +84,9 @@ NativeResult check_elf_in_anon() {
 
     return r;
 }
+
+#else
+
+NativeResult check_elf_in_anon() { return not_built_for_abi(); }
+
+#endif

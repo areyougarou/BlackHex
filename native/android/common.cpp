@@ -3,6 +3,7 @@
 #include <sstream>
 #include <cstring>
 #include <cstdio>
+#include <cinttypes>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -39,7 +40,7 @@ std::vector<VmaEntry> read_maps() {
         VmaEntry e{};
         int n = 0;
 
-        if (sscanf(line, "%lx-%lx %7s %lx %x:%x %lu%n",
+        if (sscanf(line, "%" SCNx64 "-%" SCNx64 " %7s %" SCNx64 " %x:%x %" SCNu64 "%n",
                    &e.start, &e.end, e.perms, &e.offset, &e.dev_major, &e.dev_minor,
                    &e.inode, &n) >= 7) {
             const char* p = line + n;
@@ -127,7 +128,7 @@ size_t read_disk_bytes_for_addr(uintptr_t addr, void* out, size_t len) {
     if (v->path.find("memfd:") != std::string::npos) return 0;
     int fd = open(v->path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) return 0;
-    off64_t off = (off64_t)(v->offset + (addr - v->start));
+    off64_t off = (off64_t)(v->offset + (addr - v->start));  // off_t is 32-bit on 32-bit ABIs
     ssize_t n = pread64(fd, out, len, off);
     close(fd);
     return n > 0 ? (size_t)n : 0;

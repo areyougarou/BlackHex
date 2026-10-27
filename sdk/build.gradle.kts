@@ -1,5 +1,6 @@
 import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
 import com.vanniktech.maven.publish.SonatypeHost
+import javax.inject.Inject
 
 plugins {
     alias(libs.plugins.android.library)
@@ -16,13 +17,19 @@ android {
     defaultConfig {
         minSdk = 26
         consumerProguardFiles("consumer-rules.pro")
-        externalNativeBuild { cmake { abiFilters += "arm64-v8a" } }
+        externalNativeBuild { cmake { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") } }
     }
 
     externalNativeBuild {
         cmake {
             path = file("../native/CMakeLists.txt")
             version = "3.22.1"
+        }
+    }
+
+    packaging {
+        jniLibs {
+            excludes += listOf("**/armeabi-v7a/libblackhex.so", "**/x86/libblackhex.so", "**/x86_64/libblackhex.so")
         }
     }
 
@@ -66,4 +73,41 @@ mavenPublishing {
 
 signing {
     useGpgCmd()
+}
+
+abstract class StageAbiAssets : DefaultTask() {
+    @get:InputFiles
+    abstract val nativeLibs: ConfigurableFileCollection
+
+    @get:Internal
+    abstract val ndkDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Inject
+    abstract val execOps: ExecOperations
+
+    @TaskAction
+    fun stage() {
+        val bin = ndkDir.get().asFile.resolve("toolchains/llvm/prebuilt").listFiles()!!.single().resolve("bin")
+        val strip = bin.listFiles()!!.single { it.nameWithoutExtension == "llvm-strip" }
+        val out = outputDir.get().asFile.apply { deleteRecursively() }
+        listOf("armeabi-v7a", "x86", "x86_64").forEach { abi ->
+            val src = nativeLibs.asFileTree.matching { include("**/$abi/libblackhex.so") }.singleFile
+            val dst = out.resolve("blackhex/$abi/libblackhex.so").apply { parentFile.mkdirs() }
+            execOps.exec { commandLine(strip, "-o", dst, src) }
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val name = variant.name.replaceFirstChar { it.uppercase() }
+        val stage = tasks.register<StageAbiAssets>("stage${name}AbiAssets") {
+            nativeLibs.from(tasks.named("externalNativeBuild$name"))
+            ndkDir.set(android.ndkDirectory)
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(stage, StageAbiAssets::outputDir)
+    }
 }

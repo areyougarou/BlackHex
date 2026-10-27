@@ -7,6 +7,8 @@
 #include <sstream>
 #include <vector>
 
+#if defined(__aarch64__)
+
 struct HookTarget {
     const char* sym;
     const char* lib;
@@ -82,3 +84,9 @@ NativeResult check_hook_bytes() {
         return {STATUS_CLEAN, "no ARM64 trampoline (LDR X16,[PC,#8] = 0x58000050) differing from the on-disk library (readable=" + std::to_string(readable) + ")"};
     return {STATUS_DETECTED, std::to_string(hooked) + " hooked function(s):\n" + d.str()};
 }
+
+#else
+
+NativeResult check_hook_bytes() { return not_built_for_abi(); }
+
+#endif

@@ -64,3 +64,19 @@ static const char* const FRIDA_EXPORTS[] = {
     "frida_init",
     nullptr
 };
+
+#if defined(__aarch64__)
+#define BH_ABI "arm64-v8a"
+#elif defined(__arm__)
+#define BH_ABI "armeabi-v7a"
+#elif defined(__x86_64__)
+#define BH_ABI "x86_64"
+#elif defined(__i386__)
+#define BH_ABI "x86"
+#else
+#define BH_ABI "unknown"
+#endif
+
+inline NativeResult not_built_for_abi() {
+    return { STATUS_NOT_APPLICABLE, std::string("not built for this chip type (") + BH_ABI + ")" };
+}

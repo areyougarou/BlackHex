@@ -71,7 +71,12 @@ int64_t raw_size(int fd){ return (int64_t)syscall(__NR_lseek, fd, 0, SEEK_END); 
 bool raw_pread(int fd, void* buf, size_t len, int64_t off){
     uint8_t* p=(uint8_t*)buf; size_t got=0;
     while(got<len){
-        long n=syscall(__NR_pread64, fd, p+got, len-got, off+(int64_t)got);
+        int64_t at=off+(int64_t)got;
+#if defined(__arm__)  // ARM EABI passes a 64-bit syscall argument in an even register pair: pad one word
+        long n=syscall(__NR_pread64, fd, p+got, len-got, 0, (uint32_t)at, (uint32_t)((uint64_t)at>>32));
+#else
+        long n=syscall(__NR_pread64, fd, p+got, len-got, at);
+#endif
         if(n<=0) return false; got+=(size_t)n;
     }
     return true;

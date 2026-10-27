@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#if defined(__aarch64__)
+
 namespace {
 
 const char* const SENSITIVE_FNS[] = {
@@ -99,3 +101,9 @@ NativeResult check_opcode_trampoline() {
 
     return r;
 }
+
+#else
+
+NativeResult check_opcode_trampoline() { return not_built_for_abi(); }
+
+#endif

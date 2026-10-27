@@ -5,6 +5,8 @@
 #include <cstring>
 #include <string>
 
+#if defined(__LP64__)
+
 namespace {
 
 constexpr size_t   AM_ACCESS_FLAGS_OFF   = 4;
@@ -156,3 +158,9 @@ NativeResult check_art_entrypoint_integrity(JNIEnv* env) {
 
     return r;
 }
+
+#else
+
+NativeResult check_art_entrypoint_integrity(JNIEnv*) { return not_built_for_abi(); }
+
+#endif

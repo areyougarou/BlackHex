@@ -8,6 +8,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#if defined(__aarch64__)
+
 namespace {
 
 const VmaEntry* vma_for(uint64_t a) {
@@ -148,3 +150,9 @@ NativeResult check_got_plt_integrity() {
 
     return r;
 }
+
+#else
+
+NativeResult check_got_plt_integrity() { return not_built_for_abi(); }
+
+#endif

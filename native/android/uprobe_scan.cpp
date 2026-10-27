@@ -6,6 +6,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#if defined(__aarch64__)
+
 namespace {
 
 constexpr uint32_t BRK_UPROBE = 0xD42000A0u;
@@ -84,3 +86,9 @@ NativeResult check_uprobe_residue() {
 
     return r;
 }
+
+#else
+
+NativeResult check_uprobe_residue() { return not_built_for_abi(); }
+
+#endif
