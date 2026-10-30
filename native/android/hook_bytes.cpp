@@ -1,4 +1,5 @@
 #include "hook_bytes.h"
+#include "hook_dest.h"
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -67,22 +68,33 @@ static ByteCheck read_hook_bytes(const char* sym, uintptr_t addr) {
 
 NativeResult check_hook_bytes() {
     std::ostringstream d;
-    int readable = 0, hooked = 0;
+    std::ostringstream u;
+    std::string own;
+    int readable = 0, hooked = 0, untraced = 0;
     const auto& addrs = hook_addrs();
     for (size_t i = 0; HOOK_TARGETS[i].sym; ++i) {
         auto c = read_hook_bytes(HOOK_TARGETS[i].sym, addrs[i]);
         if (!c.read_ok) continue;
         readable++;
         if (c.is_trampoline && !c.stock) {
-            hooked++;
-            d << "  " << c.sym << "() @0x" << std::hex << c.addr
-              << " insn0=0x" << c.insn << " (LDR X16,[PC,#8] trampoline, differs from on-disk library)\n";
+            std::string where;
+            HookOwner owner = hook_owner(c.addr, where);
+            if (owner == HOOK_APP_OWN) { own += std::string(" ") + c.sym + "->" + where; continue; }
+            // Not traced to any library: a hook, but not proof of who placed it.
+            std::ostringstream& out = owner == HOOK_UNRESOLVED ? u : d;
+            (owner == HOOK_UNRESOLVED ? untraced : hooked)++;
+            out << "  " << c.sym << "() @0x" << std::hex << c.addr
+                << " insn0=0x" << c.insn << " (LDR X16,[PC,#8] trampoline, differs from on-disk library), lands in " << where << "\n";
         }
     }
     if (readable == 0) return {STATUS_INCONCLUSIVE, "no watched function readable (self-memory read failed)"};
+    if (hooked == 0 && untraced > 0)
+        return {STATUS_INCONCLUSIVE, "could not verify: " + std::to_string(untraced) +
+                                     " hooked function(s), not traced to the code that placed the hook:\n" + u.str()};
     if (hooked == 0)
-        return {STATUS_CLEAN, "no ARM64 trampoline (LDR X16,[PC,#8] = 0x58000050) differing from the on-disk library (readable=" + std::to_string(readable) + ")"};
-    return {STATUS_DETECTED, std::to_string(hooked) + " hooked function(s):\n" + d.str()};
+        return {STATUS_CLEAN, "no ARM64 trampoline (LDR X16,[PC,#8] = 0x58000050) differing from the on-disk library (readable=" + std::to_string(readable) + ")" +
+                              (own.empty() ? "" : "; hooked by the app's own library:" + own)};
+    return {STATUS_DETECTED, std::to_string(hooked) + " hooked function(s):\n" + d.str() + u.str()};
 }
 
 #else

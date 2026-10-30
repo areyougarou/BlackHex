@@ -4,6 +4,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cinttypes>
+#include <cerrno>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -32,26 +33,77 @@ bool is_own_vma(const std::string& path) {
     return path.find(g_own_process_name) != std::string::npos;
 }
 
+namespace {
+
+bool skip_ws(const char*& p, const char* e) {
+    const char* s = p;
+    while (p < e && (*p == ' ' || *p == '\t')) p++;
+    return p > s;
+}
+
+bool number(const char*& p, const char* e, int base, uint64_t& v) {
+    const char* s = p;
+    v = 0;
+    for (; p < e; p++) {
+        unsigned d;
+        if (*p >= '0' && *p <= '9') d = (unsigned)(*p - '0');
+        else if (base == 16 && *p >= 'a' && *p <= 'f') d = (unsigned)(*p - 'a' + 10);
+        else if (base == 16 && *p >= 'A' && *p <= 'F') d = (unsigned)(*p - 'A' + 10);
+        else break;
+        v = v * (uint64_t)base + d;
+    }
+    return p > s;
+}
+
+// One maps line: "start-end perms offset major:minor inode [path]". false = not a maps line.
+bool parse_maps_line(const char* p, const char* e, VmaEntry& v) {
+    uint64_t major = 0, minor = 0;
+    if (!number(p, e, 16, v.start) || p >= e || *p++ != '-' || !number(p, e, 16, v.end) || !skip_ws(p, e)) return false;
+    size_t n = 0;
+    while (p < e && *p != ' ' && *p != '\t' && n < sizeof(v.perms) - 1) v.perms[n++] = *p++;
+    v.perms[n] = 0;
+    if (n == 0 || !skip_ws(p, e) || !number(p, e, 16, v.offset) || !skip_ws(p, e)) return false;
+    if (!number(p, e, 16, major) || p >= e || *p++ != ':' || !number(p, e, 16, minor)) return false;
+    if (!skip_ws(p, e) || !number(p, e, 10, v.inode)) return false;
+    v.dev_major = (unsigned)major;
+    v.dev_minor = (unsigned)minor;
+    skip_ws(p, e);
+    const char* q = p;
+    while (q < e && *q != '\r') q++;
+    v.path.assign(p, (size_t)(q - p));
+    return true;
+}
+
+}
+
+// Reads the whole map with large reads, then parses each line by hand. The kernel hands back about a
+// page per read either way; the parse used sscanf, which cost as much as the kernel's own work and on
+// a slow core (Pixel 6, repeat calls) twice as much.
 std::vector<VmaEntry> read_maps() {
     std::vector<VmaEntry> result;
-    FILE* f = fopen("/proc/self/maps", "r");
-    if (!f) return result;
-
-    char line[4352];
-    while (fgets(line, sizeof(line), f)) {
-        VmaEntry e{};
-        int n = 0;
-
-        if (sscanf(line, "%" SCNx64 "-%" SCNx64 " %7s %" SCNx64 " %x:%x %" SCNu64 "%n",
-                   &e.start, &e.end, e.perms, &e.offset, &e.dev_major, &e.dev_minor,
-                   &e.inode, &n) >= 7) {
-            const char* p = line + n;
-            while (*p == ' ' || *p == '\t') p++;
-            e.path.assign(p, strcspn(p, "\r\n"));
-            result.push_back(e);
-        }
+    int fd = open("/proc/self/maps", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return result;
+    std::string text;
+    size_t len = 0;
+    text.resize(256 * 1024);
+    for (;;) {
+        if (text.size() - len < 64 * 1024) text.resize(text.size() * 2);
+        ssize_t n = read(fd, &text[len], text.size() - len);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        len += (size_t)n;
     }
-    fclose(f);
+    close(fd);
+    result.reserve(len / 100);
+    const char* p = text.data();
+    const char* end = p + len;
+    while (p < end) {
+        const char* nl = static_cast<const char*>(memchr(p, '\n', (size_t)(end - p)));
+        const char* e = nl ? nl : end;
+        VmaEntry v{};
+        if (parse_maps_line(p, e, v)) result.push_back(std::move(v));
+        p = e + 1;
+    }
     return result;
 }
 
@@ -149,7 +201,14 @@ std::string json_escape(const std::string& s) {
             case '\r': out += "\\r";  break;
             case '\t': out += "\\t";  break;
             default:
-                if ((unsigned char)c < 0x20) {
+                // Escape control bytes (< 0x20) and every byte 0x7F and above. A non-ASCII path or
+                // memfd name would otherwise pass straight into NewStringUTF, where CheckJNI (on in
+                // debuggable builds and emulators) aborts the app on a lone or half-cut UTF-8 byte;
+                // in a release build the bad string surfaces as a NATIVE_CORE result instead. Escaping
+                // each such byte as \u00XX keeps everything handed to JNI plain ASCII. This text is
+                // diagnostic only, so a non-ASCII path shown as its byte values, not the real glyphs,
+                // is fine.
+                if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7F) {
                     char buf[8];
                     snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)c);
                     out += buf;

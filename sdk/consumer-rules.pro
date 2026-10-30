@@ -1,1 +1,1 @@
--keep class io.github.areyougarou.blackhex.NativeCore { native <methods>; }
+-keep class io.github.areyougarou.intakto.NativeCore { native <methods>; }

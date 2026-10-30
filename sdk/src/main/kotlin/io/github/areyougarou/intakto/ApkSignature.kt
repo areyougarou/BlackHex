@@ -1,4 +1,4 @@
-package io.github.areyougarou.blackhex
+package io.github.areyougarou.intakto
 
 import java.io.ByteArrayInputStream
 import java.io.EOFException
@@ -38,37 +38,37 @@ internal object ApkSignature {
     )
 
     fun verify(f: FileChannel, known: Set<String>, targetSdk: Int): ApkVerdict {
-        if (known.isEmpty()) return ApkVerdict(Status.INCONCLUSIVE, null, "no signer from Android to compare")
-        val (eocd, eocdOff) = endRecord(f) ?: return ApkVerdict(Status.INCONCLUSIVE, null, "no ZIP end record")
+        if (known.isEmpty()) return ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: no signer from Android to compare")
+        val (eocd, eocdOff) = endRecord(f) ?: return ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: no ZIP end record")
         val cdOff = le32(eocd, 16).toLong() and 0xffffffffL
         val cdSize = le32(eocd, 12).toLong() and 0xffffffffL
-        if (cdOff + cdSize != eocdOff || cdOff < 32) return ApkVerdict(Status.INCONCLUSIVE, null, "unexpected ZIP layout")
+        if (cdOff + cdSize != eocdOff || cdOff < 32) return ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: unexpected ZIP layout")
         val foot = read(f, cdOff - 24, 24)
         if (String(foot, 8, 16, Charsets.US_ASCII) != "APK Sig Block 42") return if (targetSdk >= 30)
             ApkVerdict(Status.DETECTED, null, "no v2/v3 signing block: the APK is signed with v1 only, which Android refuses for targetSdkVersion $targetSdk")
-        else ApkVerdict(Status.INCONCLUSIVE, null, "signed with v1 only, which Android accepts below targetSdkVersion 30; this check reads only v2/v3 signers")
+        else ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: signed with v1 only, which Android accepts below targetSdkVersion 30; this check reads only v2/v3 signers")
         val blockSize = ByteBuffer.wrap(foot).order(ByteOrder.LITTLE_ENDIAN).long
         if (blockSize < 24 || blockSize > 16L * CHUNK || blockSize + 8 > cdOff)
-            return ApkVerdict(Status.INCONCLUSIVE, null, "implausible signing block size")
+            return ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: implausible signing block size")
         val blockStart = cdOff - blockSize - 8
         val head = read(f, blockStart, 8)
-        if (le(head).long != blockSize) return ApkVerdict(Status.INCONCLUSIVE, null, "signing block sizes do not match")
+        if (le(head).long != blockSize) return ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: signing block sizes do not match")
         val pairs = read(f, blockStart + 8, (blockSize - 24).toInt())
         val blocks = try { idValues(pairs) } catch (t: RuntimeException) {
-            return ApkVerdict(Status.INCONCLUSIVE, null, "unparseable signing block")
+            return ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: unparseable signing block")
         }
         val entries = try {
             listOf(V31 to "v3.1", V3 to "v3", V2 to "v2").flatMap { (id, scheme) -> blocks[id]?.let { entries(it, scheme, id != V2) }.orEmpty() }
         } catch (t: RuntimeException) {
-            return ApkVerdict(Status.INCONCLUSIVE, null, "unparseable signer")
+            return ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: unparseable signer")
         }
-        if (entries.isEmpty()) return ApkVerdict(Status.INCONCLUSIVE, null, "no v2/v3 signer")
+        if (entries.isEmpty()) return ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: no v2/v3 signer")
         val e = entries.firstOrNull { it.signer in known } ?: return ApkVerdict(Status.DETECTED, entries.first().signer,
             "no signing entry in the file carries a signer Android reports: file=${entries.joinToString(",") { it.signer.take(16) }} " +
                 "android=${known.joinToString(",") { it.take(16) }}")
         val (scheme, signedData, sigs, publicKey, digests, certDer, signer) = e
         val alg = algs.firstOrNull { a -> a.id in sigs }
-            ?: return ApkVerdict(Status.INCONCLUSIVE, null, "$scheme: no supported signature algorithm")
+            ?: return ApkVerdict(Status.INCONCLUSIVE, null, "could not verify: $scheme: no supported signature algorithm")
         val key = KeyFactory.getInstance(alg.key).generatePublic(X509EncodedKeySpec(publicKey))
         val ok = Signature.getInstance(alg.jca).run {
             initVerify(key)
@@ -80,7 +80,7 @@ internal object ApkSignature {
         val cert = CertificateFactory.getInstance("X.509").generateCertificate(ByteArrayInputStream(certDer))
         if (!cert.publicKey.encoded.contentEquals(publicKey))
             return ApkVerdict(Status.DETECTED, signer, "$scheme: certificate does not carry the signing key")
-        val expected = digests[alg.id] ?: return ApkVerdict(Status.INCONCLUSIVE, signer, "$scheme: no content digest")
+        val expected = digests[alg.id] ?: return ApkVerdict(Status.INCONCLUSIVE, signer, "could not verify: $scheme: no content digest")
         val actual = contentDigest(f, alg.digest, blockStart, cdOff, eocdOff, eocd)
         if (!actual.contentEquals(expected))
             return ApkVerdict(Status.DETECTED, signer, "$scheme: file contents differ from what was signed")

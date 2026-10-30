@@ -1,4 +1,5 @@
 #include "opcode_scan.h"
+#include "hook_dest.h"
 #include <dlfcn.h>
 #include <cstdint>
 #include <cstdio>
@@ -46,7 +47,7 @@ const char* classify(const uint32_t* w, uintptr_t p) {
     if (is_br(w[0]))  return "indirect-branch (BR) trampoline at entry";
     if (is_b(w[0]) && b_escapes_module(w, p)) return "direct-branch (B) escaping module";
     if (is_ldr_lit(w[0]) && (is_br(w[1]) || is_br(w[2]))) return "literal-load + BR trampoline";
-    if (is_adrp(w[0]) && is_br(w[2])) return "ADRP + BR trampoline";
+    if (is_adrp(w[0]) && (is_br(w[1]) || is_br(w[2]))) return "ADRP + BR trampoline";
     return nullptr;
 }
 
@@ -59,8 +60,8 @@ NativeResult check_opcode_trampoline() {
         return a;
     }();
     NativeResult r;
-    int resolved = 0, readable = 0, hooked = 0;
-    std::string detail;
+    int resolved = 0, readable = 0, hooked = 0, untraced = 0;
+    std::string detail, own, untraced_detail;
     for (size_t i = 0; SENSITIVE_FNS[i]; ++i) {
         const char* const* s = &SENSITIVE_FNS[i];
         void* p = addrs[i];
@@ -76,27 +77,40 @@ NativeResult check_opcode_trampoline() {
         size_t need = (size_t)(bi + 3) * 4;
         size_t dn = read_disk_bytes_for_addr((uintptr_t)p, disk, sizeof(disk));
         if (dn >= need && memcmp(w, disk, need) == 0) continue;
-        hooked++;
+        std::string where;
+        HookOwner owner = hook_owner((uintptr_t)p + (uintptr_t)bi * 4, where);
+        if (owner == HOOK_APP_OWN) {
+            own += std::string(" ") + *s + "->" + where;
+            continue;
+        }
         const VmaEntry* v = vma_for((uintptr_t)p);
         bool filebacked = v && !v->path.empty() && v->path[0] != '[' && v->path.find("memfd:") == std::string::npos;
         char line[256];
-        snprintf(line, sizeof(line), "  %s @%p insn0=0x%08x: %s (%s)\n", *s, p, w[bi], why,
+        snprintf(line, sizeof(line), "  %s @%p insn0=0x%08x: %s (%s), lands in ", *s, p, w[bi], why,
                  filebacked ? "differs from on-disk library" : "code not backed by a file");
-        detail += line;
+        // A hook the follower cannot trace to any library proves a hook, not who placed it.
+        if (owner == HOOK_UNRESOLVED) { untraced++; untraced_detail += line + where + "\n"; continue; }
+        hooked++;
+        detail += line + where + "\n";
     }
 
     std::string raw = "resolved=" + std::to_string(resolved) +
                       " readable=" + std::to_string(readable) +
-                      " hooked=" + std::to_string(hooked);
+                      " hooked=" + std::to_string(hooked) +
+                      " untraced=" + std::to_string(untraced);
     if (readable == 0) {
         r.status = STATUS_INCONCLUSIVE;
         r.details = "self-memory read failed on all watched fns (" + raw + ")";
     } else if (hooked > 0) {
         r.status = STATUS_DETECTED;
-        r.details = raw + "\n" + detail;
+        r.details = raw + "\n" + detail + untraced_detail;
+    } else if (untraced > 0) {
+        r.status = STATUS_INCONCLUSIVE;
+        r.details = "could not verify: hooked, but not traced to the code that placed the hook (" + raw + ")\n" + untraced_detail;
     } else {
         r.status = STATUS_CLEAN;
-        r.details = "no entry-prologue trampoline differing from the on-disk library (" + raw + ")";
+        r.details = "no entry-prologue trampoline differing from the on-disk library (" + raw + ")" +
+                    (own.empty() ? "" : "; hooked by the app's own library:" + own);
     }
 
     return r;

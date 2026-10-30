@@ -1,5 +1,6 @@
 #include "maps_integrity.h"
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <unistd.h>
 #include <sys/mman.h>
@@ -10,6 +11,23 @@ const VmaEntry* vma_for(uint64_t addr) {
     for (const auto& v : g_maps)
         if (addr >= v.start && addr < v.end) return &v;
     return nullptr;
+}
+
+// Zygisk loaders map every enabled module into every app, and ReZygisk keeps any module that does
+// not ask to be unloaded, so a module library alone only says a root tool is installed. These
+// modules unload themselves from every app they do not hook: in our memory, they target this app.
+const char* const kModulesDir = "/data/adb/modules/";
+const char* const kTargetingModules[] = {"zygisk_lsposed", "riru_lsposed", "zygisk_vector", "zygiskfrida"};
+
+std::string module_id(const std::string& p) {
+    size_t b = strlen(kModulesDir), e = p.find('/', b);
+    return p.rfind(kModulesDir, 0) == 0 && e != std::string::npos ? p.substr(b, e - b) : std::string();
+}
+
+bool targeting_module(const std::string& id) {
+    for (const char* m : kTargetingModules)
+        if (id == m) return true;
+    return false;
 }
 }
 
@@ -26,15 +44,19 @@ NativeResult check_lib_from_root_path() {
     NativeResult r;
     if (!maps_available()) return {STATUS_INCONCLUSIVE, "process memory map unavailable (empty /proc/self/maps snapshot); cannot judge"};
     int hits = 0;
-    std::string detail;
+    std::string detail, present;
     for (const auto& v : g_maps) {
         if (!v.executable()) continue;
         const std::string& p = v.path;
         if (p.empty() || p[0] == '[') continue;
         if (is_own_vma(p)) continue;
-        bool suspect = (p.rfind("/data/adb/", 0) == 0) ||
-                       (p.find("/data/local/tmp/") != std::string::npos);
-        if (!suspect) continue;
+        bool tmp = p.find("/data/local/tmp/") != std::string::npos;
+        if (!tmp && p.rfind("/data/adb/", 0) != 0) continue;
+        std::string id = tmp ? std::string() : module_id(p);
+        if (!id.empty() && !targeting_module(id)) {
+            if (present.find(" " + id + " ") == std::string::npos) present += " " + id + " ";
+            continue;
+        }
         hits++;
         char line[256];
         snprintf(line, sizeof(line), "  %llx-%llx %s %s\n",
@@ -46,6 +68,7 @@ NativeResult check_lib_from_root_path() {
     r.status = hits > 0 ? STATUS_DETECTED : STATUS_CLEAN;
     r.details = hits > 0 ? std::string("exec lib(s) from root/temp path:\n") + detail
                          : "no exec lib mapped from /data/adb or /data/local/tmp";
+    if (!present.empty()) r.details += "\nnot counted, root modules loaded into every app:" + present;
 
     return r;
 }

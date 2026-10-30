@@ -9,10 +9,6 @@
 #define STATUS_INCONCLUSIVE   2
 #define STATUS_NOT_APPLICABLE 3
 
-#define CERT_PROOF  0
-#define CERT_STRONG 1
-#define CERT_WEAK   2
-
 struct NativeResult {
     int status = STATUS_INCONCLUSIVE;
     std::string details;
@@ -59,27 +55,18 @@ extern int g_target_sdk;
 
 #define FRIDA_TRAMPOLINE_INSN 0x58000050u
 
-static const char* const FRIDA_EXPORTS[] = {
-    "frida_agent_main",
-    "gum_init",
-    "gum_deinit",
-    "gum_interceptor_obtain",
-    "frida_init",
-    nullptr
-};
-
 #if defined(__aarch64__)
-#define BH_ABI "arm64-v8a"
+#define INTAKTO_ABI "arm64-v8a"
 #elif defined(__arm__)
-#define BH_ABI "armeabi-v7a"
+#define INTAKTO_ABI "armeabi-v7a"
 #elif defined(__x86_64__)
-#define BH_ABI "x86_64"
+#define INTAKTO_ABI "x86_64"
 #elif defined(__i386__)
-#define BH_ABI "x86"
+#define INTAKTO_ABI "x86"
 #else
-#define BH_ABI "unknown"
+#define INTAKTO_ABI "unknown"
 #endif
 
 inline NativeResult not_built_for_abi() {
-    return { STATUS_NOT_APPLICABLE, std::string("not built for this chip type (") + BH_ABI + ")" };
+    return { STATUS_NOT_APPLICABLE, std::string("not built for this chip type (") + INTAKTO_ABI + ")" };
 }

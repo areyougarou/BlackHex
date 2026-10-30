@@ -3,18 +3,12 @@
 #include <ctime>
 #include "common.h"
 #include "hook_bytes.h"
-#include "named_artifacts.h"
-#include "art_integrity.h"
 #include "elf_anon.h"
 #include "maps_integrity.h"
 #include "got_plt.h"
 #include "uprobe_scan.h"
 #include "opcode_scan.h"
-#include "emulator_scan.h"
-#include "emulator_hw.h"
-#include "custom_rom_scan.h"
 #include "tamper_scan.h"
-#include "root_checks.h"
 
 namespace {
 
@@ -24,53 +18,30 @@ long now_us() {
     return t.tv_sec * 1000000L + t.tv_nsec / 1000;
 }
 
-JNIEnv* g_env = nullptr;
-
 std::string jstr(JNIEnv* env, jstring s) {
     const char* c = s ? env->GetStringUTFChars(s, nullptr) : nullptr;
     std::string out = c ? c : "";
     if (c) env->ReleaseStringUTFChars(s, c);
     return out;
 }
-NativeResult check_art() { return check_art_entrypoint_integrity(g_env); }
 
-struct Check { const char* id; NativeResult (*fn)(); const char* group; int certainty; };
+struct Check { const char* id; NativeResult (*fn)(); const char* group; };
 
 const Check CHECKS[] = {
-    {"HOOK_BYTES",               check_hook_bytes,           "INSTRUMENTATION", CERT_STRONG},
-    {"NAMED_LINKER_EXPORTS",     check_linker_exports,       "INSTRUMENTATION", CERT_PROOF},
-    {"LIB_FROM_ROOT_PATH",       check_lib_from_root_path,   "INSTRUMENTATION", CERT_PROOF},
-    {"MAPS_INTEGRITY",           check_maps_integrity,       "INSTRUMENTATION", CERT_WEAK},
-    {"GOT_PLT_INTEGRITY",        check_got_plt_integrity,    "INSTRUMENTATION", CERT_STRONG},
-    {"UPROBE_RESIDUE",           check_uprobe_residue,       "INSTRUMENTATION", CERT_STRONG},
-    {"OPCODE_TRAMPOLINE",        check_opcode_trampoline,    "INSTRUMENTATION", CERT_STRONG},
-    {"ELF_IN_ANON",              check_elf_in_anon,          "INSTRUMENTATION", CERT_WEAK},
-    {"EMU_CPU_ISA",              check_emu_cpu_isa,          "EMULATOR",        CERT_WEAK},
-    {"EMU_TRANSLATOR",           check_emu_translator,       "EMULATOR",        CERT_WEAK},
-    {"EMU_PROPS_QEMU",           check_emu_props_qemu,       "EMULATOR",        CERT_STRONG},
-    {"EMU_PROPS_HINTS",          check_emu_props_hints,      "EMULATOR",        CERT_WEAK},
-    {"EMU_DEVNODES",             check_emu_devnodes,         "EMULATOR",        CERT_STRONG},
-    {"EMU_MOUNTS",               check_emu_mounts,           "EMULATOR",        CERT_WEAK},
-    {"EMU_VULKAN",               check_emu_vulkan,           "EMULATOR",        CERT_STRONG},
-    {"EMU_SENSORS",              check_emu_sensors,          "EMULATOR",        CERT_STRONG},
-    {"CROM_BOOT",                check_crom_boot,            "BOOTLOADER",      CERT_STRONG},
-    {"CROM_SIGN",                check_crom_sign,            "BOOTLOADER",      CERT_WEAK},
-    {"CROM_ROM_PROPS",           check_crom_rom_props,       "BOOTLOADER",      CERT_STRONG},
-    {"TAMPER_SIGNING_BLOCK",     check_tamper_signing_block, "APP_INTEGRITY",   CERT_STRONG},
-    {"CLV_MAPS_ENGINE_STRING",   check_clone_engine_maps,    "APP_INTEGRITY",   CERT_WEAK},
-    {"ROOT_SU_PATH",             check_root_su_path,         "ROOT",            CERT_STRONG},
-    {"ROOT_SELINUX_DOMAIN",      check_root_selinux_domain,  "ROOT",            CERT_WEAK},
-    {"ROOT_PROC_STATUS",         check_root_proc_status,     "ROOT",            CERT_PROOF},
-    {"ROOT_MOUNT_TOKENS",        check_root_mount_tokens,    "ROOT",            CERT_WEAK},
-    {"ROOT_KERNEL_STRING",       check_root_kernel_string,   "ROOT",            CERT_STRONG},
-    {"ROOT_MAGISK_DAEMON",       check_root_magisk_daemon,   "ROOT",            CERT_STRONG},
-    {"ART_ENTRYPOINT_INTEGRITY", check_art,                  "INSTRUMENTATION", CERT_WEAK},
+    {"HOOK_BYTES",               check_hook_bytes,           "INSTRUMENTATION"},
+    {"LIB_FROM_ROOT_PATH",       check_lib_from_root_path,   "INSTRUMENTATION"},
+    {"FRIDA_AGENT_IN_MEMORY",    check_frida_agent_in_memory, "INSTRUMENTATION"},
+    {"DISGUISED_LIBRARY_IN_MEMORY", check_disguised_library, "INSTRUMENTATION"},
+    {"GOT_PLT_INTEGRITY",        check_got_plt_integrity,    "INSTRUMENTATION"},
+    {"UPROBE_RESIDUE",           check_uprobe_residue,       "INSTRUMENTATION"},
+    {"OPCODE_TRAMPOLINE",        check_opcode_trampoline,    "INSTRUMENTATION"},
+    {"TAMPER_SIGNING_BLOCK",     check_tamper_signing_block, "APP_INTEGRITY"},
 };
 
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_io_github_areyougarou_blackhex_NativeCore_open(JNIEnv* env, jclass, jstring path) {
+Java_io_github_areyougarou_intakto_NativeCore_open(JNIEnv* env, jclass, jstring path) {
     const char* p = env->GetStringUTFChars(path, nullptr);
     if (!p) return -1;
     int fd = raw_open(p);
@@ -78,21 +49,27 @@ Java_io_github_areyougarou_blackhex_NativeCore_open(JNIEnv* env, jclass, jstring
     return fd;
 }
 
+// The first check() reads the map here, to find the APK, a few milliseconds before run() would read it
+// again (both on the Intakto thread). run() takes this snapshot instead of reading the map twice.
+static bool g_maps_fresh = false;
+
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_github_areyougarou_blackhex_NativeCore_apkPath(JNIEnv* env, jclass, jstring pkg) {
-    std::string p = own_apk_path(read_maps(), jstr(env, pkg));
+Java_io_github_areyougarou_intakto_NativeCore_apkPath(JNIEnv* env, jclass, jstring pkg) {
+    g_maps = read_maps();
+    g_maps_fresh = true;
+    std::string p = own_apk_path(g_maps, jstr(env, pkg));
     return p.empty() ? nullptr : env->NewStringUTF(p.c_str());
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_github_areyougarou_blackhex_NativeCore_run(JNIEnv* env, jclass, jstring signers, jstring pkg, jint targetSdk) {
+Java_io_github_areyougarou_intakto_NativeCore_run(JNIEnv* env, jclass, jstring signers, jstring pkg, jint targetSdk) {
     init_own_process_name();
-    g_maps = read_maps();
+    if (!g_maps_fresh) g_maps = read_maps();
+    g_maps_fresh = false;
     mem_run_begin();
     g_expected_signers = jstr(env, signers);
     g_own_package = jstr(env, pkg);
     g_target_sdk = targetSdk;
-    g_env = env;
     std::string json = "[";
     for (const Check& c : CHECKS) {
         long t0 = now_us();
@@ -100,7 +77,7 @@ Java_io_github_areyougarou_blackhex_NativeCore_run(JNIEnv* env, jclass, jstring 
         long us = now_us() - t0;
         if (json.size() > 1) json += ",";
         json += std::string("{\"id\":\"") + c.id + "\",\"group\":\"" + c.group +
-                "\",\"certainty\":" + std::to_string(c.certainty) + ",\"status\":" + std::to_string(r.status) +
+                "\",\"status\":" + std::to_string(r.status) +
                 ",\"us\":" + std::to_string(us) + ",\"details\":\"" + json_escape(r.details) + "\"}";
     }
     json += "]";
