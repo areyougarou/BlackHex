@@ -8,8 +8,8 @@ tracks it as it moves. Dates are ISO (year-month-day).
 ### Breaking
 - The library is renamed from BlackHex to Intakto. The entry object `BlackHex` is now `Intakto`,
   and the native library file is `libintakto.so`. The GitHub repository is now
-  `areyougarou/Intakto`; the old address redirects. Install through JitPack:
-  `com.github.areyougarou:Intakto:v0.2.0`.
+  `areyougarou/IntaktoFT`; the old addresses redirect. Install through JitPack:
+  `com.github.areyougarou:IntaktoFT:v0.2.0`.
 - The code package is renamed from `rasp.sdk` to `io.github.areyougarou.intakto`. Update your imports.
 - `Signal.category` and `Signal.severity` (free-text strings) are removed. Use `Signal.group`
   (`APP_INTEGRITY`, `INSTRUMENTATION`).

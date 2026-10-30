@@ -41,9 +41,9 @@ mavenPublishing {
         signAllPublications()
     }
     pom {
-        name.set("Intakto")
+        name.set("IntaktoFT")
         description.set("Lightweight Android RASP (runtime app self-protection) library - free tier.")
-        url.set("https://github.com/areyougarou/Intakto")
+        url.set("https://github.com/areyougarou/IntaktoFT")
         licenses {
             license {
                 name.set("The Apache License, Version 2.0")
@@ -57,9 +57,9 @@ mavenPublishing {
             }
         }
         scm {
-            url.set("https://github.com/areyougarou/Intakto")
-            connection.set("scm:git:https://github.com/areyougarou/Intakto.git")
-            developerConnection.set("scm:git:ssh://git@github.com/areyougarou/Intakto.git")
+            url.set("https://github.com/areyougarou/IntaktoFT")
+            connection.set("scm:git:https://github.com/areyougarou/IntaktoFT.git")
+            developerConnection.set("scm:git:ssh://git@github.com/areyougarou/IntaktoFT.git")
         }
     }
 }

@@ -10,7 +10,7 @@ library to your app module:
 maven { url = uri("https://jitpack.io") }
 
 // app/build.gradle.kts, inside dependencies { ... }
-implementation("com.github.areyougarou:Intakto:v0.2.0")
+implementation("com.github.areyougarou:IntaktoFT:v0.2.0")
 ```
 
 Then add one line where your app starts. `Application.onCreate()` is best, because it runs however the
