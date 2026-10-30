@@ -91,6 +91,16 @@ After implementing IntaktoFT, attacking your app will only be possible through c
 
 ~ Get started
 
+IntaktoFT needs `minSdk 26` (Android 8.0) or higher. Add JitPack and the library, then call `Intakto.check(this)` in `Application.onCreate()`:
+
+```kotlin
+// settings.gradle.kts, inside dependencyResolutionManagement { repositories { ... } }
+maven { url = uri("https://jitpack.io") }
+
+// app/build.gradle.kts, inside dependencies { ... }
+implementation("com.github.areyougarou:Intakto:v0.2.0")
+```
+
 - [Integration guide](docs/guides/integration.md): the one-line setup, report mode, callbacks and cost.
 - [Build from source](docs/guides/build.md).
 

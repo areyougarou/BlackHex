@@ -35,7 +35,7 @@ android {
 
 mavenPublishing {
     configure(AndroidSingleVariantLibrary("release", sourcesJar = true, publishJavadocJar = true))
-    coordinates("io.github.areyougarou", "intakto", "0.1.0")
+    coordinates("io.github.areyougarou", "intakto", "0.2.0")
     publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
     if (providers.gradleProperty("signing.gnupg.keyName").isPresent) {
         signAllPublications()
@@ -43,7 +43,7 @@ mavenPublishing {
     pom {
         name.set("Intakto")
         description.set("Lightweight Android RASP (runtime app self-protection) library - free tier.")
-        url.set("https://github.com/areyougarou/BlackHex")
+        url.set("https://github.com/areyougarou/Intakto")
         licenses {
             license {
                 name.set("The Apache License, Version 2.0")
@@ -57,9 +57,9 @@ mavenPublishing {
             }
         }
         scm {
-            url.set("https://github.com/areyougarou/BlackHex")
-            connection.set("scm:git:https://github.com/areyougarou/BlackHex.git")
-            developerConnection.set("scm:git:ssh://git@github.com/areyougarou/BlackHex.git")
+            url.set("https://github.com/areyougarou/Intakto")
+            connection.set("scm:git:https://github.com/areyougarou/Intakto.git")
+            developerConnection.set("scm:git:ssh://git@github.com/areyougarou/Intakto.git")
         }
     }
 }

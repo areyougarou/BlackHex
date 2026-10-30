@@ -2,7 +2,18 @@
 
 [Back to the README](../../README.md)
 
-Add one line where your app starts. `Application.onCreate()` is best, because it runs however the
+IntaktoFT needs `minSdk 26` (Android 8.0) or higher. Add JitPack to your repositories and the
+library to your app module:
+
+```kotlin
+// settings.gradle.kts, inside dependencyResolutionManagement { repositories { ... } }
+maven { url = uri("https://jitpack.io") }
+
+// app/build.gradle.kts, inside dependencies { ... }
+implementation("com.github.areyougarou:Intakto:v0.2.0")
+```
+
+Then add one line where your app starts. `Application.onCreate()` is best, because it runs however the
 app is opened:
 
 ```kotlin
