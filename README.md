@@ -63,6 +63,7 @@ So IntaktoFT stays narrow on purpose: zero false positives, retested against eve
 ~ What IntaktoFT catches
 
 **To validate IntaktoFT, we measured it against all available off-the-shelf tools an attacker can use to break into your app.**
+Most tools not listed here are forks or wrappers of the same engines: Frida, Xposed-style frameworks such as LSPosed, and repackagers such as LSPatch.
 
 | Tool | Engine it runs | Check that catches it | How |
 |---|---|---|---|
