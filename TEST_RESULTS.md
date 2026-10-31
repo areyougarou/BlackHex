@@ -68,7 +68,6 @@ IntaktoFT adds about 540 KB to your app on arm64 phones. The checks run on their
 - A copy rebuilt by hand and signed with a new key passes the file checks. So does anything the attacker packs into that copy, such as a renamed Frida Gadget that hooks Java code. We tested this with standard tools (apktool, apksigner). Telling a new key from yours needs a server check, which the paid tier adds.
 - A hook placed only inside your app's own native code, with no Frida agent in memory, isn't caught.
 - On x86 emulators, 8 of the 12 checks run. The four hook checks are written for the arm64 chips in real phones. Test on a real phone for the full set.
-- App Cloner isn't shown as caught. Its clone carries `libappcloner.so`, the file `TAMPER_REPACKAGER` looks for, but we couldn't record a live catch. On Android 16 the clone doesn't start. On Android 12 it runs, and our check didn't start inside it. It stays off the README's list until we can show a live catch.
 
 ## Every tool in the README's table was caught again on this release
 
