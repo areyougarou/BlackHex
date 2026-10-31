@@ -68,13 +68,14 @@ IntaktoFT adds about 540 KB to your app on arm64 phones. The checks run on their
 - A copy rebuilt by hand and signed with a new key passes the file checks. So does anything the attacker packs into that copy, such as a renamed Frida Gadget that hooks Java code. We tested this with standard tools (apktool, apksigner). Telling a new key from yours needs a server check, which the paid tier adds.
 - A hook placed only inside your app's own native code, with no Frida agent in memory, isn't caught.
 - On x86 emulators, 8 of the 12 checks run. The four hook checks are written for the arm64 chips in real phones. Test on a real phone for the full set.
+- App Cloner isn't shown as caught. Its clone carries `libappcloner.so`, the file `TAMPER_REPACKAGER` looks for, but we couldn't record a live catch. On Android 16 the clone doesn't start. On Android 12 it runs, and our check didn't start inside it. It stays off the README's list until we can show a live catch.
 
 ## Every tool in the README's table was caught again on this release
 
-We re-ran the attack tools from the README's table against these checks. 15 of the 17 were caught live, each by the check the README names:
+We re-ran the attack tools from the README's table against these checks. 15 of the 16 were caught live, each by the check the README names:
 - 11 Frida builds, including ones that rename or hide Frida's agent, such as StealthFrida, ReShift and strongR-frida: caught by `FRIDA_AGENT_IN_MEMORY` or `DISGUISED_LIBRARY_IN_MEMORY`.
 - The Frida Gadget in its standard setup (its own file name, hooking native code): caught by `OPCODE_TRAMPOLINE` and the file checks.
 - LSPatch: caught by the three file checks.
 - ZygiskFrida and LSPosed (Vector): caught by `LIB_FROM_ROOT_PATH`.
 
-The honest app read clean on all three test phones. Two rows weren't a live catch. FreeDaah's agent crashes the app it attaches to, so the attack ends there; it hides the same way as the Frida builds above, which were caught. App Cloner 4.0.10's clone carries `libappcloner.so`, the file `TAMPER_REPACKAGER` looks for. We couldn't record a live verdict: on Android 16, App Cloner's own container fails to start the cloned app, and on Android 12 Google Play Protect blocks installing the clone.
+The honest app read clean on all three test phones. One row wasn't a live catch. FreeDaah's agent crashes the app it attaches to, so the attack ends there; it hides the same way as the Frida builds above, which were caught.

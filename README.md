@@ -84,7 +84,6 @@ Most tools not listed here are forks or wrappers of the same engines: Frida, Xpo
 | ZygiskFrida 1.9.0 | Frida gadget | `LIB_FROM_ROOT_PATH` | its loader runs from its root module folder |
 | LSPosed (Vector) | Xposed-style framework | `LIB_FROM_ROOT_PATH` | its loader runs from its own root module folder, which it loads only into the apps it targets |
 | LSPatch | repackager | `TAMPER_APK_CONTENT`, `TAMPER_SIGNING_BLOCK`, `TAMPER_REPACKAGER` | the rebuilt APK no longer matches the signer Android has on file, and it carries LSPatch's own files |
-| App Cloner | repackager | `TAMPER_REPACKAGER` | the APK carries App Cloner's own files |
 
 Every result, with the phone and Android build it ran on: [test results](TEST_RESULTS.md).
 After implementing IntaktoFT, attacking your app will only be possible through custom work, which considerably raises the attacker's entry barrier and cost.
