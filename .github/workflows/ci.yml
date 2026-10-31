@@ -3,7 +3,8 @@ name: CI
 # Builds the library and runs its tests on every push and PR.
 # On a version tag (v*) it also (a) proves a stranger can consume the tag from JitPack,
 # and (b) publishes supply-chain proof as release assets: SHA-256 checksums of the AAR
-# and .so files GOOGLE PLAY ADOPTERS ACTUALLY DOWNLOAD FROM JITPACK, plus a CycloneDX SBOM.
+# and .so files GOOGLE PLAY ADOPTERS ACTUALLY DOWNLOAD FROM JITPACK, plus a CycloneDX SBOM
+# that the build job writes from the Gradle dependency graph (every library the AAR pulls in).
 #
 # Why hash the JitPack artifact and not a CI rebuild: JitPack builds from source on its own
 # machines, and the native (.so) build is not guaranteed byte-reproducible, so a hash of a
@@ -51,15 +52,23 @@ jobs:
       - name: Install the pinned NDK and CMake
         run: sdkmanager "ndk;${NDK_VERSION}" "cmake;${CMAKE_VERSION}"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Assemble the release AAR and run unit tests
+      - name: Assemble the release AAR, run unit tests and write the SBOM
         # Tags up to v0.2.1 store gradlew without the execute bit, and a manual run builds the
         # tag itself, so run it through bash.
-        run: bash ./gradlew --no-daemon :sdk:assembleRelease :sdk:test
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: bash ./gradlew --no-daemon :sdk:assembleRelease :sdk:test :sdk:cyclonedxDirectBom -PreleaseTag="$RELEASE_TAG"
       - name: Keep the AAR as a build artifact
         uses: actions/upload-artifact@v4
         with:
           name: intakto-aar-${{ github.sha }}
           path: sdk/build/outputs/aar/sdk-release.aar
+          if-no-files-found: error
+      - name: Keep the SBOM for the release job
+        uses: actions/upload-artifact@v4
+        with:
+          name: intakto-sbom
+          path: sdk/build/reports/cyclonedx-direct/bom.json
           if-no-files-found: error
 
   adoption-check:
@@ -189,12 +198,19 @@ jobs:
           ( cd aar_x && find jni -name '*.so' -print0 | sort -z | xargs -0 sha256sum ) >> "${sumfile}"
           cat "${sumfile}"
           echo "SUMFILE=${sumfile}" >> "$GITHUB_ENV"
-      - name: CycloneDX SBOM of the JitPack artifact
-        uses: anchore/sbom-action@v0
+      - name: Fetch the SBOM the build job wrote from the dependency graph
+        uses: actions/download-artifact@v4
         with:
-          file: ${{ env.AAR }}
-          format: cyclonedx-json
-          output-file: intakto-${{ env.VER }}.cdx.json
+          name: intakto-sbom
+          path: sbom
+      - name: Name the SBOM for the release, and refuse one that lists no components
+        shell: bash
+        run: |
+          set -euo pipefail
+          n=$(jq '.components | length' sbom/bom.json)
+          if [ "$n" -lt 1 ]; then echo "::error::The SBOM lists no components; not publishing it."; exit 1; fi
+          echo "SBOM lists $n components"
+          mv sbom/bom.json "intakto-${VER}.cdx.json"
       - name: Create the release with its notes, checksums and SBOM
         uses: softprops/action-gh-release@v2
         with:

@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.vanniktech.mavenPublish)
+    alias(libs.plugins.cyclonedx.bom)
     signing
 }
 
@@ -34,6 +35,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions { jvmTarget = "11" }
+}
+
+dependencies {
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+}
+
+// SBOM for the release page: every library an app pulls in with IntaktoFT (the release runtime
+// classpath: kotlin-stdlib and what it brings), named by the coordinate adopters use on JitPack.
+// CI passes the tag as -PreleaseTag; a local run without it labels the version "unspecified".
+tasks.cyclonedxDirectBom {
+    includeConfigs = listOf("releaseRuntimeClasspath")
+    componentGroup = "com.github.areyougarou"
+    componentName = "IntaktoFT"
+    componentVersion = providers.gradleProperty("releaseTag").getOrElse("unspecified")
 }
 
 mavenPublishing {
