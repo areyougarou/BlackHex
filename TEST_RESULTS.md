@@ -10,15 +10,15 @@ Firebase Test Lab is Google's service that runs your app on real phones in Googl
 
 | Maker | Phone | Android | Honest app | Modified copy |
 |---|---|---|---|---|
-| Samsung | real | 10 | clean, 10 of 10 runs | blocked, 5 of 5 |
-| Motorola | real | 12 | clean, 10 of 10 | blocked, 5 of 5 |
-| OPPO | real | 13 | clean, 10 of 10 | blocked, 5 of 5 |
-| Xiaomi | real | 15 | clean, 10 of 10 | blocked, 5 of 5 |
-| Google | real | 17 | clean, 10 of 10 | blocked, 5 of 5 |
-| Google | virtual | 11 | clean, 10 of 10 | blocked, 5 of 5 |
-| Google | virtual | 12L | clean, 10 of 10 | blocked, 5 of 5 |
-| Google | virtual | 14 | clean, 10 of 10 | blocked, 5 of 5 |
-| Google | virtual | 16 | clean, 10 of 10 | blocked, 5 of 5 |
+| Samsung | Galaxy S9 | 10 | clean, 10 of 10 runs | blocked, 5 of 5 |
+| Motorola | moto g(30) | 12 | clean, 10 of 10 | blocked, 5 of 5 |
+| OPPO | CPH2195 | 13 | clean, 10 of 10 | blocked, 5 of 5 |
+| Xiaomi | Xiaomi 14 | 15 | clean, 10 of 10 | blocked, 5 of 5 |
+| Google | Pixel 11 | 17 | clean, 10 of 10 | blocked, 5 of 5 |
+| Google | virtual phone | 11 | clean, 10 of 10 | blocked, 5 of 5 |
+| Google | virtual phone | 12L | clean, 10 of 10 | blocked, 5 of 5 |
+| Google | virtual phone | 14 | clean, 10 of 10 | blocked, 5 of 5 |
+| Google | virtual phone | 16 | clean, 10 of 10 | blocked, 5 of 5 |
 
 Zero false flags, zero crashes. Three checks that read the installed files caught every modified copy: `TAMPER_APK_CONTENT`, `TAMPER_SIGNING_BLOCK` and `TAMPER_REPACKAGER`.
 
