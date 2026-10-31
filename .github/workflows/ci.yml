@@ -9,6 +9,9 @@ name: CI
 # machines, and the native (.so) build is not guaranteed byte-reproducible, so a hash of a
 # CI-local rebuild could differ from what adopters fetch. We hash the JitPack output instead.
 #
+# To redo the tag jobs for a tag that already exists, without moving the tag: run this
+# workflow by hand on main (Actions > CI > Run workflow) and enter the tag, e.g. v0.2.1.
+#
 # SUPPLY-CHAIN NOTE: pin every `uses:` below to a full commit SHA before you rely on these
 # assets for integrity. Version tags (shown here) are mutable.
 
@@ -17,6 +20,11 @@ on:
     branches: ["**"]
     tags: ["v*"]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag to check on JitPack and release, for example v0.2.1"
+        required: true
 
 permissions:
   contents: read
@@ -31,11 +39,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}   # empty except on a manual run, so a push builds its own commit
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools   # the default list also asks for "tools", which the SDK no longer has
       - name: Install the pinned NDK and CMake
         run: sdkmanager "ndk;${NDK_VERSION}" "cmake;${CMAKE_VERSION}"
       - uses: gradle/actions/setup-gradle@v4
@@ -50,20 +62,24 @@ jobs:
 
   adoption-check:
     name: A stranger consumes the tag from JitPack
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools   # the default list also asks for "tools", which the SDK no longer has
       - name: Build a fresh one-line consumer against the tag
         shell: bash
         run: |
           set -euo pipefail
-          VER="${GITHUB_REF_NAME}"
+          VER="${TAG}"
           mkdir -p consumer/app/src/main/java/com/example/adopt
           cd consumer
           cat > settings.gradle.kts <<EOF
@@ -115,21 +131,25 @@ jobs:
 
   release-assets:
     name: Hash the JitPack artifact and publish the SBOM
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: adoption-check
     runs-on: ubuntu-latest
     permissions:
       contents: write   # to attach assets to the release
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - name: Check out the repository (for the release notes file)
+      - name: Check out the tagged commit (for its release notes file)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - name: Make sure the release notes file for this tag exists
         shell: bash
         run: |
           set -euo pipefail
-          NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
+          NOTES="docs/release-notes/${TAG}.md"
           if [ ! -f "$NOTES" ]; then
-            echo "::error::Release notes file $NOTES is missing. Add it before tagging ${GITHUB_REF_NAME}, or the release would publish with an empty body."
+            echo "::error::Release notes file $NOTES is missing. Add it before tagging ${TAG}, or the release would publish with an empty body."
             exit 1
           fi
           echo "found release notes: $NOTES"
@@ -137,7 +157,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VER="${GITHUB_REF_NAME}"
+          VER="${TAG}"
           BASE="https://jitpack.io/com/github/areyougarou/IntaktoFT/${VER}"
           AAR="IntaktoFT-${VER}.aar"
           # Touch the build log first so JitPack starts building, then poll for the AAR.
@@ -176,7 +196,8 @@ jobs:
       - name: Create the release with its notes, checksums and SBOM
         uses: softprops/action-gh-release@v2
         with:
-          body_path: docs/release-notes/${{ github.ref_name }}.md
+          tag_name: ${{ env.TAG }}
+          body_path: docs/release-notes/${{ env.TAG }}.md
           files: |
             ${{ env.SUMFILE }}
             intakto-${{ env.VER }}.cdx.json
