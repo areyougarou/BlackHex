@@ -174,3 +174,9 @@ Intakto.check(this, Mode.REPORT, report -> {
 | `Group` | `APP_INTEGRITY`, `INSTRUMENTATION` | Which family a signal belongs to. |
 
 Every result, with the phone and Android build it ran on: [test results](../../TEST_RESULTS.md).
+
+## Google Play Data safety
+
+IntaktoFT collects and shares no data, so it adds nothing to your app's Data safety form.
+Every check runs on the device and reads only your own app's files and memory. Nothing leaves
+the phone, so the library adds no data type for you to declare.

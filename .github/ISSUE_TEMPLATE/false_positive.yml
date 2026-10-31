@@ -1,0 +1,91 @@
+name: Report a false positive
+description: IntaktoFT flagged or closed an app on a device with no attacker present.
+title: "[false positive] <CHECK_ID> on <phone model>"
+labels: ["false-positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        IntaktoFT aims to close zero honest apps. A check that fires with no attacker present is a
+        bug we want to fix. Fill in the four required fields below so we can reproduce it. The report
+        JSON is the one your `onResult` callback receives, or the `IKFT` line in logcat.
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model
+      description: The marketing name and, if you have it, the build fingerprint (`adb shell getprop ro.build.fingerprint`).
+      placeholder: "Pixel 7a / google/lynx/lynx:16/..."
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version and build
+      description: The Android release and build number.
+      placeholder: "Android 16, build BP2A.250805.005"
+    validations:
+      required: true
+  - type: dropdown
+    id: check
+    attributes:
+      label: Which check fired
+      description: The `id` of the DETECTED signal. Pick "Other" if it is not listed.
+      options:
+        - TAMPER_APK_CONTENT
+        - TAMPER_SIGNING_BLOCK
+        - TAMPER_REPACKAGER
+        - TAMPER_PUBLIC_KEY
+        - CLV_PKGNAME_MISMATCH
+        - FRIDA_AGENT_IN_MEMORY
+        - DISGUISED_LIBRARY_IN_MEMORY
+        - OPCODE_TRAMPOLINE
+        - HOOK_BYTES
+        - GOT_PLT_INTEGRITY
+        - UPROBE_RESIDUE
+        - LIB_FROM_ROOT_PATH
+        - Other (name it in the report below)
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: The report
+      description: Paste the full report (every signal with its status and details), or the `IKFT` logcat line. This is the single most useful field.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How was the app installed
+      options:
+        - Google Play (internal, closed, open or production track)
+        - Sideload with adb install
+        - Split install (bundletool / install-multiple)
+        - Other (describe below)
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: IntaktoFT version
+      description: The JitPack tag you depend on.
+      placeholder: "v0.2.1"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: What the app was doing, other security or debug SDKs in the app, whether it reproduces every run, and any steps to reproduce.
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirms
+    attributes:
+      label: Before you file
+      options:
+        - label: I am on the latest IntaktoFT tag and it still happens.
+          required: true
+        - label: No attacker tool (Frida, Xposed/LSPosed, LSPatch, a repackaged build) was running on the device.
+          required: true
