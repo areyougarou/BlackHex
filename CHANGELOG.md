@@ -3,6 +3,27 @@
 All notable changes to the free tier. The public interface is still settling, so this
 tracks it as it moves. Dates are ISO (year-month-day).
 
+## 0.2.1 (2026-10-31)
+
+### Changed
+- `Intakto.check` is now callable from Java the same way as from Kotlin: `Intakto.check(this)`. Added
+  `@JvmStatic` and `@JvmOverloads`, so Java sees a static method and the optional `mode`/`onResult`
+  arguments. The result callback is now a `ReportCallback` single-method interface instead of a Kotlin
+  function type, so a Java lambda needs no `Unit.INSTANCE`. Kotlin callers are unaffected.
+- The library is built for Java 11 instead of Java 17, so projects set to Java 11 compatibility
+  (including Android Studio's default new-project settings) can use it. The library is pure Kotlin and
+  uses no Java 17 API, so only the class-file version changed.
+
+### Docs
+- Rewrote the integration guide: a from-scratch setup (the `Application` class and the manifest
+  `android:name`, with a note that a missing `android:name` makes the check silently never run),
+  version-catalog and Groovy dependency forms, a default-mode callback example, an API table, and a
+  note that x86 emulators run 8 of the 12 checks.
+- Added `TEST_RESULTS.md` and pointed the README and integration-guide results links at it.
+- Corrected three 0.2.0 entries below that did not match the shipped behaviour: the `Mode.BLOCK`
+  notice, the native-library packaging (all four chips ship as normal `jni/` libraries), and the
+  `CHECK_STALLED`/`CHECK_FAILED` status (INCONCLUSIVE, which never closes the app).
+
 ## 0.2.0 (2026-10-31)
 
 ### Breaking
@@ -45,19 +66,20 @@ tracks it as it moves. Dates are ISO (year-month-day).
   builds, Rusda, strongR-frida, phantom-frida, FreeDaah).
 - Zero-paste setup. The package name is read from a manifest value Android fills in at build
   time, and the signer from Android, so the developer configures nothing.
-- `Mode.BLOCK` stops the app by closing its tasks (which removes them from the recent-apps list)
-  and ending its process. No message is shown.
+- `Mode.BLOCK` shows a short "Security check" notice naming what was detected, then stops the app when
+  the user dismisses it: it closes the app's tasks (which removes them from the recent-apps list) and
+  ends its process.
 - `TAMPER_APK_CONTENT`: verifies each installed APK file (base and every split) against the
   signature block inside that file, and against the signer Android reports. It finds the real
   base.apk from the process memory map and reads it below the Java layer, so a tool that points
   the app at a clean copy does not fool it.
 - `TAMPER_PUBLIC_KEY`: flags an app signed with a key anyone can download, the public AOSP test
   keys and the keys that ship inside common re-signing tools, matched by exact SHA-256.
-- One package carries native code for all four chip types: arm64-v8a as a normal library, the
-  other three loaded at run time from assets. A check built for one chip type is left out of the
-  report on the others.
-- `CHECK_STALLED` and `CHECK_FAILED`: a run that made no progress for 5 s, or that could not run,
-  blocks instead of passing.
+- One package carries native code for all four chip types (arm64-v8a, armeabi-v7a, x86_64, x86), each
+  shipped as a normal `jni/<abi>/libintakto.so` library. A check built for one chip type is left out of
+  the report on the others.
+- `CHECK_STALLED` and `CHECK_FAILED`: a run that made no progress for 5 s, or that could not run. Both
+  read INCONCLUSIVE, so on their own they never close the app; only a DETECTED signal does.
 - An app that Google Play installs while it downloads (Android 12 and later) is checked once the
   download finishes. The 5 s stall limit does not count while it waits.
 

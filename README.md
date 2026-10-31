@@ -85,7 +85,7 @@ Most tools not listed here are forks or wrappers of the same engines: Frida, Xpo
 | LSPatch | repackager | `TAMPER_APK_CONTENT`, `TAMPER_SIGNING_BLOCK`, `TAMPER_REPACKAGER` | the rebuilt APK no longer matches the signer Android has on file, and it carries LSPatch's own files |
 | App Cloner | repackager | `TAMPER_REPACKAGER` | the APK carries App Cloner's own files |
 
-Every result, with the phone and Android build it ran on: [TEST RESULTS LINK].
+Every result, with the phone and Android build it ran on: [test results](TEST_RESULTS.md).
 After implementing IntaktoFT, attacking your app will only be possible through custom tools, which considerably raises the attacker's entry barrier and cost.
 
 
@@ -98,7 +98,7 @@ IntaktoFT needs `minSdk 26` (Android 8.0) or higher. Add JitPack and the library
 maven { url = uri("https://jitpack.io") }
 
 // app/build.gradle.kts, inside dependencies { ... }
-implementation("com.github.areyougarou:IntaktoFT:v0.2.0")
+implementation("com.github.areyougarou:IntaktoFT:v0.2.1")
 ```
 
 - [Integration guide](docs/guides/integration.md): the one-line setup, report mode, callbacks and cost.
@@ -118,7 +118,7 @@ The result is zero false positives. Like a spam filter that never buries a genui
 Apps suffering fake accounts, bonus abuse, referral farming, automation and MITM.
 These issues mostly affect fintech, crypto, web3, social media, dating, online gambling and betting, e-commerce and marketplaces, ticketing and resale, streaming, gig and delivery, loyalty and rewards programs, MMORPGs and competitive games.
 Even though IntaktoFT still visibly reduces these attack classes (mostly performed through instrumentation), a more specialized and protected solution is suggested.
-If you're among these, contact us here to see if you qualify for the commercial solutions: [Intakto paid tier]([PAID TIER LINK]).
+If you're among these, contact us to see if you qualify for the commercial solutions: Intakto paid tier (link coming soon).
 
 
 ~ What it checks for

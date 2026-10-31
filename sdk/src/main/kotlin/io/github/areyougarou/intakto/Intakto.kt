@@ -50,6 +50,15 @@ data class Report(
     val elapsedMs: Long,
 )
 
+/**
+ * The result callback. A `fun interface` (single-abstract-method), so a Kotlin trailing lambda and a
+ * plain Java lambda both work: `Intakto.check(this) { report -> ... }` in Kotlin, and
+ * `Intakto.check(this, report -> { ... })` in Java with no `Unit.INSTANCE` to return.
+ */
+fun interface ReportCallback {
+    fun onReport(report: Report)
+}
+
 object Intakto {
 
     private const val STALL_MS = 5000L
@@ -72,7 +81,7 @@ object Intakto {
 
     private class Waiter(
         val run: Run, val t0: Long, val app: Context, val screen: WeakReference<Activity>?, val mode: Mode,
-        var onResult: ((Report) -> Unit)?,
+        var onResult: ReportCallback?,
     ) : Runnable {
         override fun run() {
             val idle = (System.nanoTime() - lastProgress) / 1_000_000
@@ -86,7 +95,12 @@ object Intakto {
         }
     }
 
-    fun check(context: Context, mode: Mode = Mode.BLOCK, onResult: (Report) -> Unit = {}) {
+    // @JvmStatic + @JvmOverloads so Java callers can write Intakto.check(this), Intakto.check(this, mode),
+    // or the full form, matching the one-line call the README shows. Without them, Kotlin's default
+    // arguments are not visible to Java and the object method is only reachable as Intakto.INSTANCE.check(...).
+    @JvmStatic
+    @JvmOverloads
+    fun check(context: Context, mode: Mode = Mode.BLOCK, onResult: ReportCallback = ReportCallback {}) {
         val app = context.applicationContext ?: context
         val screen = activity(context)?.let { WeakReference(it) }
         val t0 = System.nanoTime()
@@ -141,7 +155,7 @@ object Intakto {
         val verdict = if (enforced.isNotEmpty()) Verdict.BLOCK else Verdict.PASS
         try {
             if (w.screen == null || w.screen.get().let { it != null && !it.isFinishing && !it.isDestroyed })
-                onResult(Report(signals, verdict, enforced, (System.nanoTime() - w.t0) / 1_000_000))
+                onResult.onReport(Report(signals, verdict, enforced, (System.nanoTime() - w.t0) / 1_000_000))
         } finally {
             if (w.mode == Mode.BLOCK && verdict == Verdict.BLOCK) block(w, enforced)
         }

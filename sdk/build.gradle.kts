@@ -26,16 +26,19 @@ android {
         }
     }
 
+    // Java 11 bytecode (not 17) so adopter projects on Java 11 compatibility -- including Android
+    // Studio's default new-project template -- can consume the library. The SDK is pure Kotlin and
+    // uses no Java 17 APIs, so this only lowers the class-file version, from 61 to 55.
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions { jvmTarget = "11" }
 }
 
 mavenPublishing {
     configure(AndroidSingleVariantLibrary("release", sourcesJar = true, publishJavadocJar = true))
-    coordinates("io.github.areyougarou", "intakto", "0.2.0")
+    coordinates("io.github.areyougarou", "intakto", "0.2.1")
     publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
     if (providers.gradleProperty("signing.gnupg.keyName").isPresent) {
         signAllPublications()
