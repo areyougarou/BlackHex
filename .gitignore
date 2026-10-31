@@ -4,3 +4,6 @@ build/
 local.properties
 *.iml
 .idea/
+captures/
+*.hprof
+.DS_Store
