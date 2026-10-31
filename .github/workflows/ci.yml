@@ -52,7 +52,9 @@ jobs:
         run: sdkmanager "ndk;${NDK_VERSION}" "cmake;${CMAKE_VERSION}"
       - uses: gradle/actions/setup-gradle@v4
       - name: Assemble the release AAR and run unit tests
-        run: ./gradlew --no-daemon :sdk:assembleRelease :sdk:test
+        # Tags up to v0.2.1 store gradlew without the execute bit, and a manual run builds the
+        # tag itself, so run it through bash.
+        run: bash ./gradlew --no-daemon :sdk:assembleRelease :sdk:test
       - name: Keep the AAR as a build artifact
         uses: actions/upload-artifact@v4
         with:
