@@ -30,7 +30,7 @@ If either answer is yes, it stops the app.
    We use checks that produce zero false positives, crashes or slowdown.
    Every check is tested across devices, Android versions and app types ([where we test it](#tested-on)).
    If a check fires, someone is trying to harm your app.
-   If one ever misfires on a phone we have not seen, switch to report-only: `Intakto.check(this, Mode.REPORT)` hands the result to your callback and never closes the app.
+   If a check ever flags an honest phone, switch to report-only: `Intakto.check(this, Mode.REPORT)` sends the result to your callback and never closes the app.
 4. **Free**
    Apache 2.0, commercial apps included, no account, no device limit.
 
@@ -87,7 +87,7 @@ Most tools not listed here are forks or wrappers of the same engines: Frida, Xpo
 | App Cloner | repackager | `TAMPER_REPACKAGER` | the APK carries App Cloner's own files |
 
 Every result, with the phone and Android build it ran on: [test results](TEST_RESULTS.md).
-After implementing IntaktoFT, attacking your app will only be possible through custom tools, which considerably raises the attacker's entry barrier and cost.
+After implementing IntaktoFT, attacking your app will only be possible through custom work, which considerably raises the attacker's entry barrier and cost.
 
 
 ~ Get started

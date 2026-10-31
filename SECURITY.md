@@ -1,49 +1,26 @@
 # Security policy
 
-## Which versions get fixes
+## Report a vulnerability privately
 
-IntaktoFT is pre-1.0 and the public interface is still settling. Fixes land on the
-latest released tag only. Before you report something, move to the newest tag on
-[JitPack](https://jitpack.io/#areyougarou/IntaktoFT) and check that it still happens there.
+Found a way past IntaktoFT, or a way to make it close or crash an honest app? Please don't open a public issue. A public issue hands the attack to everyone before adopters can update.
 
-| Version | Gets security fixes |
-|---|---|
-| Latest `0.2.x` tag | Yes |
-| Anything older | No, upgrade first |
+Report it here instead: open the **Security** tab of this repo, then **Report a vulnerability**. Only the maintainer can read it.
 
-## How to report a vulnerability
-
-Report it privately. Do not open a public issue, and do not describe the problem in a
-pull request, a discussion or a commit message, because that hands a working attack to
-everyone reading the repository.
-
-Use GitHub's private channel: open the **Security** tab of
-`github.com/areyougarou/IntaktoFT`, then **Report a vulnerability**. That opens a draft
-only the maintainer can read.
-
-Tell us, in the report:
-
-- what an attacker gains (for example: a hook the checks miss, a repackaged APK that reads CLEAN, a crash you can trigger in a host app);
-- the exact steps, the tool and its version, and the phone model and Android build you saw it on;
-- the smallest proof you have. A log excerpt or a short script is enough. We do not need a weaponised exploit.
+Please include:
+- what an attacker gets: for example a hook the checks miss, a repackaged APK that reads CLEAN, or a crash you can trigger in a host app;
+- the steps, the tool and its version, and the phone model and Android build;
+- the smallest proof you have. A log excerpt or a short script is enough.
 
 ## What happens next
 
-We aim to reply within 7 days and to agree a fix and a disclosure date with you. We credit
-reporters who want the credit. We ask you to keep the detail private until the fixed tag
-ships, so adopters can upgrade first.
+We reply within 7 days, and agree on a fix and a disclosure date with you. If you want credit, you get it. Please keep the details private until the fixed version is out, so adopters can update first.
 
-## What is in scope
+## Which versions get fixes
 
-In scope: the free-tier library in this repository (the `sdk` module and the native code
-under `native/`), and anything that lets an attacker tamper with or hook a host app without
-IntaktoFT reporting it, or that makes IntaktoFT close or crash an honest app.
+Only the latest one. IntaktoFT is still before 1.0. Before you report, check that the problem still happens on the newest tag on [JitPack](https://jitpack.io/#areyougarou/IntaktoFT).
 
-Out of scope: the paid tier (report those through the paid-tier channel), social engineering
-of the maintainer, and findings that need a privileged attacker you already lost the phone to.
+## What's in scope
 
-## One limit to keep in mind
+This repo: the `sdk` module and the native code in `native/`. That means anything that lets an attacker tamper with or hook an app without IntaktoFT reporting it, and anything that makes IntaktoFT close or crash an honest app.
 
-IntaktoFT runs inside the app it protects, on a device the attacker may fully control. It
-raises the cost of an attack and reports the attacks it is built to see. It is one layer,
-not a guarantee. Keep the decisions that matter on your server.
+Not in scope: the paid tier, which has its own channel, and attempts to trick the maintainer.

@@ -121,6 +121,18 @@ jobs:
     permissions:
       contents: write   # to attach assets to the release
     steps:
+      - name: Check out the repository (for the release notes file)
+        uses: actions/checkout@v4
+      - name: Make sure the release notes file for this tag exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$NOTES" ]; then
+            echo "::error::Release notes file $NOTES is missing. Add it before tagging ${GITHUB_REF_NAME}, or the release would publish with an empty body."
+            exit 1
+          fi
+          echo "found release notes: $NOTES"
       - name: Download the AAR JitPack serves to adopters
         shell: bash
         run: |
@@ -161,9 +173,10 @@ jobs:
           file: ${{ env.AAR }}
           format: cyclonedx-json
           output-file: intakto-${{ env.VER }}.cdx.json
-      - name: Attach checksums and SBOM to the GitHub release
+      - name: Create the release with its notes, checksums and SBOM
         uses: softprops/action-gh-release@v2
         with:
+          body_path: docs/release-notes/${{ github.ref_name }}.md
           files: |
             ${{ env.SUMFILE }}
             intakto-${{ env.VER }}.cdx.json
